@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Badminton Tournament</title>
+<style>
+  :root{
+    --bg:#0f1720; --card:#182432; --card2:#1f2f40; --line:#2c3e52;
+    --txt:#eaf2f8; --dim:#93a7ba; --accent:#2ecc71;
+    --a:#3498db; --b:#e67e22; --warn:#e74c3c; --gold:#f1c40f; --purple:#9b59b6;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; padding:0;}
+  body{
+    background:var(--bg); color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    max-width:520px; margin:0 auto; padding:16px 14px 44px; min-height:100vh;
+  }
+  h1{font-size:22px; margin:4px 0 2px; text-align:center;}
+  .sub{text-align:center; color:var(--dim); font-size:13px; margin-bottom:16px;}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:14px;}
+  label{display:block; font-size:12px; color:var(--dim); margin:10px 0 4px; text-transform:uppercase; letter-spacing:.5px;}
+  input{width:100%; padding:13px 12px; font-size:16px; border-radius:10px; border:1px solid var(--line); background:var(--card2); color:var(--txt);}
+  input:focus{outline:none; border-color:var(--a);}
+  .row{display:flex; gap:8px; align-items:center; margin-bottom:8px;}
+  .row .let{width:30px; height:30px; flex:0 0 30px; border-radius:8px; background:var(--card2); border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center; font-weight:800; color:var(--dim);}
+  button{font-family:inherit; font-size:16px; font-weight:700; border:none; border-radius:12px; padding:15px; width:100%; color:#fff; cursor:pointer; transition:transform .05s, opacity .15s;}
+  button:active{transform:scale(.98);}
+  .btn-go{background:var(--accent);}
+  .btn-ghost{background:transparent; border:1px solid var(--line); color:var(--txt);}
+  .btn-small{padding:11px; font-size:14px;}
+  .hidden{display:none !important;}
+
+  .topbar{display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:10px;}
+  .timer{font-variant-numeric:tabular-nums; font-weight:800; font-size:20px;}
+  .timer.warn{color:var(--warn);}
+  .pill{background:var(--card2); border:1px solid var(--line); border-radius:20px; padding:6px 12px; font-size:13px; color:var(--dim); cursor:pointer;}
+
+  .gamehdr{text-align:center; font-size:15px; color:var(--dim); margin-bottom:6px;}
+  .gamehdr b{color:var(--txt); font-size:17px;}
+  .finaltag{text-align:center; color:var(--gold); font-weight:800; letter-spacing:1px; margin-bottom:8px;}
+
+  .vs{text-align:center; color:var(--dim); font-weight:800; margin:10px 0; font-size:14px;}
+  .team{border-radius:14px; padding:16px; cursor:pointer; border:2px solid transparent; transition:transform .05s;}
+  .team:active{transform:scale(.98);}
+  .team .names{font-size:20px; font-weight:800; line-height:1.35;}
+  .team .tag{font-size:12px; text-transform:uppercase; letter-spacing:1px; opacity:.9; margin-bottom:6px;}
+  .team-a{background:rgba(52,152,219,.16); border-color:var(--a);}
+  .team-b{background:rgba(230,126,34,.16); border-color:var(--b);}
+  .team .tap{font-size:12px; margin-top:8px; opacity:.75;}
+  .resting{text-align:center; color:var(--dim); font-size:13px; margin:14px 0 4px;}
+  .resting b{color:var(--txt);}
+
+  table{width:100%; border-collapse:collapse;}
+  th,td{padding:11px 8px; text-align:left; border-bottom:1px solid var(--line); font-size:15px;}
+  th{color:var(--dim); font-size:12px; text-transform:uppercase; letter-spacing:.5px;}
+  td.n{text-align:right; font-weight:800; font-variant-numeric:tabular-nums;}
+  .rank{width:34px; color:var(--dim); font-weight:700;}
+  tr.top td{color:var(--gold);}
+  .champbanner{text-align:center; background:rgba(241,196,15,.12); border:1px solid var(--gold); border-radius:14px; padding:18px; margin-bottom:14px;}
+  .champbanner .who{font-size:24px; font-weight:800; color:var(--gold); line-height:1.3;}
+  .note{font-size:12px; color:var(--dim); text-align:center; margin-top:10px; line-height:1.5;}
+  .stack>button{margin-top:10px;}
+  .err{color:var(--warn); font-size:13px; text-align:center; min-height:16px; margin-top:6px;}
+  .seedrow{display:flex; justify-content:space-between; padding:8px 4px; border-bottom:1px solid var(--line); font-size:15px;}
+  .seedrow .s{color:var(--dim); font-weight:700;}
+</style>
+</head>
+<body>
+
+<h1>🏸 Badminton Tournament</h1>
+<div class="sub">6 players · doubles · 9 league matches + final · ~2 hours</div>
+
+<!-- ============ SETUP ============ -->
+<section id="setup">
+  <div class="card">
+    <label>Enter your 6 players (order = A–F in the schedule)</label>
+    <div id="nameInputs"></div>
+  </div>
+  <div class="err" id="setupErr"></div>
+  <button class="btn-go" id="startBtn">Start Tournament</button>
+  <div class="note">Format: each player plays 6 matches, rests 3. 2 points per win. After 9 matches the top 4 seed a final (1+4 vs 2+3). Winners of the final take the tournament.</div>
+</section>
+
+<!-- ============ PLAY ============ -->
+<section id="play" class="hidden">
+  <div class="topbar">
+    <div class="pill" id="scorePill">Standings ▾</div>
+    <div class="timer" id="timer">2:00:00</div>
+  </div>
+
+  <div id="finalTag" class="finaltag hidden">🏆 FINAL</div>
+  <div class="gamehdr" id="gamehdr"></div>
+
+  <div class="team team-a" id="teamA" onclick="winner('A')">
+    <div class="tag" style="color:var(--a)" id="tagA">Team 1 — tap if they win</div>
+    <div class="names" id="namesA"></div>
+    <div class="tap">👆 tap this card to record the win</div>
+  </div>
+  <div class="vs">VS</div>
+  <div class="team team-b" id="teamB" onclick="winner('B')">
+    <div class="tag" style="color:var(--b)" id="tagB">Team 2 — tap if they win</div>
+    <div class="names" id="namesB"></div>
+    <div class="tap">👆 tap this card to record the win</div>
+  </div>
+
+  <div class="resting" id="resting"></div>
+
+  <div class="stack" style="margin-top:16px;">
+    <button class="btn-ghost btn-small" onclick="undo()" id="undoBtn">↩︎ Undo last result</button>
+    <button class="btn-ghost btn-small" onclick="endLeagueEarly()" id="skipBtn">⏭ Go to final now (skip remaining)</button>
+  </div>
+
+  <div class="card hidden" id="miniBoard" style="margin-top:14px;"></div>
+</section>
+
+<!-- ============ SEEDING (shown before final) ============ -->
+<section id="seeding" class="hidden">
+  <div class="card">
+    <h1 style="font-size:18px;margin-top:0;">League complete — seeding the final</h1>
+    <div id="seedList"></div>
+    <div class="note" id="seedNote"></div>
+  </div>
+  <div class="card">
+    <div class="finaltag">🏆 THE FINAL</div>
+    <div class="team team-a" style="cursor:default"><div class="names" id="finalA"></div></div>
+    <div class="vs">VS</div>
+    <div class="team team-b" style="cursor:default"><div class="names" id="finalB"></div></div>
+  </div>
+  <button class="btn-go" onclick="startFinal()">Play the Final</button>
+</section>
+
+<!-- ============ RESULTS ============ -->
+<section id="results" class="hidden">
+  <div class="champbanner">
+    <div style="font-size:13px;color:var(--dim);text-transform:uppercase;letter-spacing:1px;">🏆 Tournament Champions</div>
+    <div class="who" id="champName"></div>
+  </div>
+  <div class="card">
+    <h1 style="font-size:18px;margin-top:0;">League standings</h1>
+    <table id="finalTable"></table>
+    <div class="note" id="finalNote"></div>
+  </div>
+  <button class="btn-go" onclick="resetAll()">New Tournament</button>
+</section>
+
+<script>
+/* ================= FIXED SCHEDULE (A=0 B=1 C=2 D=3 E=4 F=5) ================= */
+var SCHEDULE = [
+  {t1:[0,1], t2:[3,4], rest:[2,5]},  // 1  A+B vs D+E   rest C,F
+  {t1:[0,5], t2:[2,4], rest:[1,3]},  // 2  A+F vs C+E   rest B,D
+  {t1:[1,4], t2:[2,3], rest:[0,5]},  // 3  B+E vs C+D   rest A,F
+  {t1:[0,2], t2:[3,5], rest:[1,4]},  // 4  A+C vs D+F   rest B,E
+  {t1:[1,3], t2:[4,5], rest:[0,2]},  // 5  B+D vs E+F   rest A,C
+  {t1:[0,4], t2:[1,2], rest:[3,5]},  // 6  A+E vs B+C   rest D,F
+  {t1:[0,3], t2:[2,5], rest:[1,4]},  // 7  A+D vs C+F   rest B,E
+  {t1:[1,4], t2:[3,5], rest:[0,2]},  // 8  B+E vs D+F   rest A,C
+  {t1:[0,2], t2:[1,5], rest:[3,4]}   // 9  A+C vs B+F   rest D,E
+];
+var LEAGUE_WIN_PTS = 2;
+var TOTAL_MS = 2*60*60*1000;
+var STORE = "badminton_fixed_v1";
+
+var S = null;
+var timerInt = null;
+var miniOpen = false;
+
+/* ================= TIEBREAK HELPERS ================= */
+function pairKey(x,y){ return x<y ? x+"|"+y : y+"|"+x; }
+function recordH2H(w,l){ var k=pairKey(w,l); if(!S.h2h[k]) S.h2h[k]={}; S.h2h[k][w]=(S.h2h[k][w]||0)+1; }
+function h2hCompare(a,b){ var r=S.h2h[pairKey(a,b)]; if(!r) return 0; var aw=r[a]||0,bw=r[b]||0; return aw>bw?-1:(bw>aw?1:0); }
+
+// stable standings: points, then head-to-head, then frozen coin
+function standings(){
+  var arr=[];
+  for(var i=0;i<6;i++) arr.push({id:i, name:S.names[i], pts:S.points[i]});
+  arr.sort(function(a,b){
+    if(b.pts!==a.pts) return b.pts-a.pts;
+    var h=h2hCompare(a.id,b.id); if(h!==0) return h;
+    return S.coin[a.id]-S.coin[b.id];
+  });
+  return arr;
+}
+
+/* ================= SETUP ================= */
+var LETTERS=["A","B","C","D","E","F"];
+function buildNameInputs(vals){
+  var box=document.getElementById("nameInputs"); box.innerHTML="";
+  for(var i=0;i<6;i++){
+    var row=document.createElement("div"); row.className="row";
+    row.innerHTML='<span class="let">'+LETTERS[i]+'</span>';
+    var inp=document.createElement("input");
+    inp.type="text"; inp.placeholder="Player "+LETTERS[i]; inp.maxLength=18;
+    inp.id="name"+i; inp.value=(vals&&vals[i])||"";
+    row.appendChild(inp); box.appendChild(row);
+  }
+}
+buildNameInputs();
+document.getElementById("startBtn").addEventListener("click", startTournament);
+
+function startTournament(){
+  var names=[], seen={};
+  for(var i=0;i<6;i++){
+    var v=document.getElementById("name"+i).value.trim();
+    if(!v) return err("Enter all 6 player names.");
+    var low=v.toLowerCase();
+    if(seen[low]) return err("Names must be unique — \""+v+"\" is repeated.");
+    seen[low]=1; names.push(v);
+  }
+  err("");
+  var coin=[0,1,2,3,4,5].map(function(){return Math.random();});
+  S={
+    names:names, points:[0,0,0,0,0,0], rest:[0,0,0,0,0,0],
+    h2h:{}, coin:coin,
+    matchIndex:0, results:[],          // results[i] = 'A' or 'B' winner per league match
+    phase:"league",                    // league | final | done
+    finalTeams:null, finalWinner:null, champions:null,
+    endAt:Date.now()+TOTAL_MS
+  };
+  save(); show("play"); startTimer(); renderPlay();
+}
+function err(m){ document.getElementById("setupErr").textContent=m||""; }
+
+/* ================= LEAGUE PLAY ================= */
+function renderPlay(){
+  if(S.phase==="league"){
+    var m=SCHEDULE[S.matchIndex];
+    document.getElementById("finalTag").classList.add("hidden");
+    document.getElementById("gamehdr").innerHTML="Match <b>"+(S.matchIndex+1)+"</b> of 9";
+    document.getElementById("tagA").textContent="Team 1 — tap if they win";
+    document.getElementById("tagB").textContent="Team 2 — tap if they win";
+    document.getElementById("namesA").textContent=nm(m.t1);
+    document.getElementById("namesB").textContent=nm(m.t2);
+    document.getElementById("resting").innerHTML="Resting: <b>"+S.names[m.rest[0]]+"</b> &amp; <b>"+S.names[m.rest[1]]+"</b>";
+    document.getElementById("undoBtn").style.display = S.matchIndex>0 ? "block":"none";
+    document.getElementById("skipBtn").style.display = "block";
+  } else if(S.phase==="final"){
+    document.getElementById("finalTag").classList.remove("hidden");
+    document.getElementById("gamehdr").innerHTML="Winners take the tournament";
+    document.getElementById("tagA").textContent="Seed 1 + Seed 4";
+    document.getElementById("tagB").textContent="Seed 2 + Seed 3";
+    document.getElementById("namesA").textContent=nm(S.finalTeams.A);
+    document.getElementById("namesB").textContent=nm(S.finalTeams.B);
+    document.getElementById("resting").innerHTML="Seeds 5 &amp; 6 sit out the final.";
+    document.getElementById("undoBtn").style.display="none";
+    document.getElementById("skipBtn").style.display="none";
+  }
+  renderMini();
+}
+function nm(t){ return S.names[t[0]]+"  &  "+S.names[t[1]]; }
+
+function winner(side){
+  if(S.phase==="league"){
+    var m=SCHEDULE[S.matchIndex];
+    var win = side==="A"? m.t1 : m.t2;
+    var lose= side==="A"? m.t2 : m.t1;
+    S.points[win[0]]+=LEAGUE_WIN_PTS; S.points[win[1]]+=LEAGUE_WIN_PTS;
+    S.rest[m.rest[0]]++; S.rest[m.rest[1]]++;
+    for(var i=0;i<2;i++)for(var j=0;j<2;j++) recordH2H(win[i],lose[j]);
+    S.results[S.matchIndex]=side;
+    S.matchIndex++;
+    save();
+    if(S.matchIndex>=SCHEDULE.length) return goToSeeding();
+    renderPlay();
+  } else if(S.phase==="final"){
+    S.finalWinner=side;
+    S.champions = side==="A"? S.finalTeams.A : S.finalTeams.B;
+    S.phase="done";
+    save(); finish();
+  }
+}
+function undo(){
+  if(S.phase!=="league" || S.matchIndex===0) return;
+  S.matchIndex--;
+  var m=SCHEDULE[S.matchIndex];
+  var side=S.results[S.matchIndex];
+  var win = side==="A"? m.t1 : m.t2;
+  var lose= side==="A"? m.t2 : m.t1;
+  S.points[win[0]]-=LEAGUE_WIN_PTS; S.points[win[1]]-=LEAGUE_WIN_PTS;
+  S.rest[m.rest[0]]--; S.rest[m.rest[1]]--;
+  for(var i=0;i<2;i++)for(var j=0;j<2;j++){ var k=pairKey(win[i],lose[j]); if(S.h2h[k]) S.h2h[k][win[i]]--; }
+  S.results[S.matchIndex]=null;
+  save(); renderPlay();
+}
+function endLeagueEarly(){
+  if(confirm("Skip remaining league matches and go straight to the final? Standings will be based on matches played so far.")) goToSeeding();
+}
+
+/* ================= SEEDING + FINAL ================= */
+function goToSeeding(){
+  var arr=standings();
+  S.finalTeams = { A:[arr[0].id, arr[3].id], B:[arr[1].id, arr[2].id] };
+  S.phase="final-pending";
+  save();
+  // render seeding screen
+  var html="";
+  for(var i=0;i<arr.length;i++){
+    html+='<div class="seedrow"><span><span class="s">Seed '+(i+1)+'</span> &nbsp; '+escapeHtml(arr[i].name)+'</span><span>'+arr[i].pts+' pts</span></div>';
+  }
+  document.getElementById("seedList").innerHTML=html;
+  document.getElementById("finalA").textContent=S.names[arr[0].id]+"  &  "+S.names[arr[3].id];
+  document.getElementById("finalB").textContent=S.names[arr[1].id]+"  &  "+S.names[arr[2].id];
+  var tied = arr.filter(function(r){return r.pts===arr[3].pts;}).length>1 || arr.filter(function(r){return r.pts===arr[0].pts;}).length>1;
+  document.getElementById("seedNote").textContent = tied
+    ? "Some players tied on points — resolved by head-to-head, then a coin flip."
+    : "Seeded purely on league points.";
+  show("seeding");
+}
+function startFinal(){ S.phase="final"; save(); show("play"); renderPlay(); }
+
+/* ================= STANDINGS RENDER ================= */
+function boardRows(arr, medals){
+  var m=["🥇","🥈","🥉"];
+  var html="<tr><th class='rank'>#</th><th>Player</th><th style='text-align:right'>Pts</th><th style='text-align:right'>Rest</th></tr>";
+  for(var i=0;i<arr.length;i++){
+    var r=arr[i];
+    var cls=(medals&&i<3)?" class='top'":"";
+    var md=medals&&i<3?m[i]+" ":"";
+    html+="<tr"+cls+"><td class='rank'>"+(i+1)+"</td><td>"+md+escapeHtml(r.name)+"</td><td class='n'>"+r.pts+"</td><td class='n' style='color:var(--dim)'>"+S.rest[r.id]+"</td></tr>";
+  }
+  return html;
+}
+document.getElementById("scorePill").addEventListener("click",function(){
+  miniOpen=!miniOpen;
+  document.getElementById("miniBoard").classList.toggle("hidden",!miniOpen);
+  this.textContent=miniOpen?"Standings ▴":"Standings ▾";
+  renderMini();
+});
+function renderMini(){ if(miniOpen) document.getElementById("miniBoard").innerHTML="<table>"+boardRows(standings(),false)+"</table>"; }
+
+/* ================= TIMER (guide only, does not auto-end) ================= */
+function startTimer(){ clearInterval(timerInt); tick(); timerInt=setInterval(tick,1000); }
+function tick(){
+  if(!S || S.phase==="done"){ clearInterval(timerInt); return; }
+  var ms=S.endAt-Date.now(); if(ms<0) ms=0;
+  var s=Math.floor(ms/1000), h=Math.floor(s/3600); s-=h*3600;
+  var mi=Math.floor(s/60); s-=mi*60;
+  var el=document.getElementById("timer");
+  el.textContent=h+":"+pad(mi)+":"+pad(s);
+  el.classList.toggle("warn", ms<=10*60*1000);
+}
+function pad(n){ return n<10?"0"+n:""+n; }
+
+/* ================= FINISH ================= */
+function finish(){
+  clearInterval(timerInt);
+  var arr=standings();
+  document.getElementById("champName").textContent = S.champions
+    ? S.names[S.champions[0]]+"  &  "+S.names[S.champions[1]]
+    : "—";
+  document.getElementById("finalTable").innerHTML=boardRows(arr,true);
+  document.getElementById("finalNote").textContent =
+    "Champions won the final. League table shows the 9-match results (Rest = games sat out).";
+  save(); show("results");
+}
+
+/* ================= PERSIST ================= */
+function save(){ try{ localStorage.setItem(STORE, JSON.stringify(S)); }catch(e){} }
+function load(){ try{ var r=localStorage.getItem(STORE); return r?JSON.parse(r):null; }catch(e){ return null; } }
+function resetAll(){ try{ localStorage.removeItem(STORE); }catch(e){} S=null; clearInterval(timerInt); buildNameInputs(); err(""); show("setup"); }
+
+/* ================= UTILS ================= */
+function show(id){ ["setup","play","seeding","results"].forEach(function(x){ document.getElementById(x).classList.toggle("hidden", x!==id); }); window.scrollTo(0,0); }
+function escapeHtml(s){ return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];}); }
+
+/* ================= RESUME ================= */
+(function(){
+  var saved=load();
+  if(saved && saved.names && saved.names.length===6){
+    if(confirm("Resume the tournament in progress?")){
+      S=saved;
+      if(S.phase==="done"){ finish(); return; }
+      if(S.phase==="final-pending"){ goToSeeding(); return; }
+      show("play"); startTimer(); renderPlay(); return;
+    }
+    try{ localStorage.removeItem(STORE); }catch(e){}
+  }
+})();
+</script>
+</body>
+</html>
