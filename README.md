@@ -10,6 +10,7 @@ A single-file web app to run a **6-player badminton doubles tournament** on one 
 - Every player plays 6 matches and rests 3 — automatically enforced by the schedule.
 - One tap records a match winner; points and standings update instantly.
 - Shows live standings any time, seeds the final for you, and crowns the champions.
+- Keeps a running **match history** — every completed match with the winning pair, the losing pair, and who rested.
 - Auto-saves progress, so a locked phone or an accidental refresh won't lose the tournament.
 
 ---
@@ -63,11 +64,12 @@ This keeps the final balanced instead of stacking the two best players together.
 1. **Enter names.** Type all six players (in your preferred A–F order) and tap **Start Tournament**.
 2. **Play a match.** The screen shows Team 1, Team 2, and who's resting. Play it on court, then **tap the card of the team that won**. The app moves to the next match automatically.
 3. **Check standings any time.** Tap **Standings ▾** at the top to expand the live leaderboard.
-4. **Fix a mistake.** Tap **↩︎ Undo last result** to reverse the previous match.
-5. **Running short on time?** Tap **⏭ Go to final now** to skip remaining league matches and seed the final from matches played so far.
-6. **The final.** After match 9 the app shows the seeding and the final matchup. Tap **Play the Final**, then tap the winning team.
-7. **Champions.** The winners are crowned, with the full league table shown below.
-8. **New event.** Tap **New Tournament** to start over.
+4. **Review past matches.** A **Match history** panel builds up below as you go — each completed match shows the winning pair (in green), the pair they beat, and who rested. It's visible at any time and appears again on the final results screen.
+5. **Fix a mistake.** Tap **↩︎ Undo last result** to reverse the previous match (it's removed from the history too).
+6. **Running short on time?** Tap **⏭ Go to final now** to skip remaining league matches and seed the final from matches played so far.
+7. **The final.** After match 9 the app shows the seeding and the final matchup. Tap **Play the Final**, then tap the winning team.
+8. **Champions.** The winners are crowned, with the full league table and match history shown below.
+9. **New event.** Tap **New Tournament** to start over.
 
 The 2-hour clock at the top is a **guide only** — it counts down and turns red in the last 10 minutes, but it won't end the tournament on its own. You control the pace.
 
