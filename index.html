@@ -190,6 +190,10 @@
     <div class="note" id="tbExplain" style="margin-top:0;text-align:left;"></div>
   </div>
   <div class="card">
+    <label style="margin-top:0;">Current scorecard</label>
+    <div id="tbBoard"></div>
+  </div>
+  <div class="card">
     <label style="margin-top:0;">Coin-toss helper (optional)</label>
     <div class="row">
       <button class="btn-ghost btn-small" style="flex:1;" onclick="flipCoin()">🪙 Flip coin</button>
@@ -511,6 +515,7 @@ function renderTiebreak(){
   show("tiebreak");
   var stats=computeStats(S.results), groups=S.tie.groups;
   document.getElementById("tbExplain").innerHTML="These players finished level on <b>points</b>, so their seeding for the final isn't decided yet. Play a knockout however you like — doubles (use the coin-toss to pick an extra player and draw teams), singles, whatever — then tap the tied players below in their <b>finishing order (best first)</b>. The final is seeded from that order.";
+  document.getElementById("tbBoard").innerHTML="<table>"+boardRows(ranking(stats,{}),false)+"</table>";
   var html="";
   groups.forEach(function(g,gi){
     var order=(S.tie.orders&&S.tie.orders[gi])||[];
@@ -644,6 +649,13 @@ function aggregateLeaderboard(tournaments){
   tournaments.forEach(function(t){
     if(!t.names||t.phase!=="done") return;
     var seen={};
+    // legacy / manually-imported tournaments (played on a different fixture): use stored tallies directly
+    if(t.legacy){
+      if(t.playerWins)Object.keys(t.playerWins).forEach(function(n){ensure(n).wins+=t.playerWins[n];});
+      if(t.championsNames)t.championsNames.forEach(function(n){var e=ensure(n);e.wins++;e.titles++;});
+      t.names.forEach(function(n){ if(!seen[n.toLowerCase()]){seen[n.toLowerCase()]=1; ensure(n).tournaments++;} });
+      return;
+    }
     // league match wins
     for(var i=0;i<9;i++){var r=t.results&&t.results[i];if(!r)continue;var m=SCHEDULE[i];var w=r.win==='A'?m.t1:m.t2;
       w.forEach(function(p){ensure(t.names[p]).wins++;});
