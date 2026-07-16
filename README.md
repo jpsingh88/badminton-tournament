@@ -18,9 +18,21 @@ A single-file web app to run a **6-player badminton doubles tournament** on one 
 
 ---
 
-## The format
+## Player counts (4, 5, or 6)
 
-**6 players, doubles (2 vs 2), 2 players rest each match.** Players are entered in playing order and labelled **A–F**. The **first four names play Match 1; the last two (E & F) rest first.**
+Enter **4, 5, or 6** names — the app adapts automatically:
+
+| Players | League games | Rest per match | Time | Final |
+|:-------:|:------------:|:--------------:|:----:|:-----:|
+| 4 | 6 | nobody (all four play) | ~1.5 hr | Seed1+Seed4 vs Seed2+Seed3 (all four play) |
+| 5 | 10 | 1 rests | ~2 hr | Seed 5 sits out |
+| 6 | 9 | 2 rest | ~2 hr | Seeds 5 & 6 sit out |
+
+Each fixture is balanced (play/rest shared evenly, partners well spread). The first four entered always start Match 1 with teams drawn at random. Everything else — 2 pts/win, knockout tie-break, seeded final, scorecard, history, online sync — works the same at every size.
+
+## The format (6-player example)
+
+**Doubles (2 vs 2), 2 players rest each match.** Players are labelled **A–F**. The **first four entered play Match 1; the extras rest first.**
 
 ### League schedule (9 matches)
 

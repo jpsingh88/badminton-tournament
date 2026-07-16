@@ -99,7 +99,7 @@
 <body>
 
 <h1>🏸 Badminton Tournament</h1>
-<div class="sub">6 players · doubles · 9 league matches + final</div>
+<div class="sub">doubles · 4–6 players · league + seeded final</div>
 <div class="modebar"><span class="badge" id="modeBadge">…</span></div>
 
 <!-- HOME -->
@@ -114,9 +114,9 @@
 <!-- SETUP -->
 <section id="setup" class="hidden">
   <div class="card">
-    <label>Enter your 6 players (first 4 start, last 2 rest first)</label>
+    <label>Enter 4, 5 or 6 players (leave the rest blank)</label>
     <div id="nameInputs"></div>
-    <div class="note" style="text-align:left;margin-top:6px;">The first 4 names play Match 1 (teams drawn at random); the last 2 rest first. Everyone plays 6 and rests 3, and no one ever plays more than 2 matches in a row.</div>
+    <div class="note" style="text-align:left;margin-top:6px;">The first 4 entered start Match 1 (teams drawn at random); any extras rest first. Fixtures are balanced so play and rest are shared evenly. 4 players = 6 games (~1.5 hr), 5 = 10 games, 6 = 9 games (~2 hr), then a seeded final.</div>
   </div>
   <div class="err" id="setupErr"></div>
   <button class="btn-go" id="startBtn">Start Tournament</button>
@@ -268,12 +268,43 @@ var FIREBASE_CONFIG = {
 /* ============================================================ */
 
 /* ---------- fixed schedule (A=0..F=5): max 2-in-a-row, all 15 pairs ---------- */
-var SCHEDULE=[
-  {t1:[0,1],t2:[2,3],rest:[4,5]},{t1:[2,4],t2:[3,5],rest:[0,1]},{t1:[0,4],t2:[1,5],rest:[2,3]},
-  {t1:[0,2],t2:[1,3],rest:[4,5]},{t1:[2,5],t2:[3,4],rest:[0,1]},{t1:[0,5],t2:[1,4],rest:[2,3]},
-  {t1:[0,3],t2:[1,2],rest:[4,5]},{t1:[2,3],t2:[4,5],rest:[0,1]},{t1:[0,1],t2:[4,5],rest:[2,3]}
-];
-var TOTAL_MS=2*60*60*1000, CHANGEOVER_S=18, STORE="badminton_v3", ARCHIVE="badminton_archive_v3";
+// Balanced fixed fixtures per player count. Each verified for rest/partner/opponent balance.
+var SCHEDULES={
+  4:[
+    {t1:[0,1],t2:[2,3],rest:[]},{t1:[0,2],t2:[1,3],rest:[]},{t1:[0,3],t2:[1,2],rest:[]},
+    {t1:[0,1],t2:[2,3],rest:[]},{t1:[0,2],t2:[1,3],rest:[]},{t1:[0,3],t2:[1,2],rest:[]}
+  ],
+  5:[
+    {t1:[0,4],t2:[1,2],rest:[3]},{t1:[0,3],t2:[2,4],rest:[1]},{t1:[0,1],t2:[2,3],rest:[4]},
+    {t1:[1,4],t2:[2,3],rest:[0]},{t1:[0,4],t2:[1,3],rest:[2]},{t1:[0,2],t2:[1,4],rest:[3]},
+    {t1:[0,2],t2:[3,4],rest:[1]},{t1:[0,3],t2:[1,2],rest:[4]},{t1:[1,3],t2:[2,4],rest:[0]},
+    {t1:[0,1],t2:[3,4],rest:[2]}
+  ],
+  6:[
+    {t1:[0,1],t2:[2,3],rest:[4,5]},{t1:[2,4],t2:[3,5],rest:[0,1]},{t1:[0,4],t2:[1,5],rest:[2,3]},
+    {t1:[0,2],t2:[1,3],rest:[4,5]},{t1:[2,5],t2:[3,4],rest:[0,1]},{t1:[0,5],t2:[1,4],rest:[2,3]},
+    {t1:[0,3],t2:[1,2],rest:[4,5]},{t1:[2,3],t2:[4,5],rest:[0,1]},{t1:[0,1],t2:[4,5],rest:[2,3]}
+  ]
+};
+var SCHEDULE=SCHEDULES[6];   // points at the active tournament's fixture; set by syncSchedule()
+function syncSchedule(){ if(S){ if(!S.size)S.size=6; SCHEDULE=SCHEDULES[S.size]; } }
+function denoms(){ // max games any player plays / rests, for the "x/N" columns
+  var play=new Array(S.size).fill(0),rest=new Array(S.size).fill(0);
+  SCHEDULE.forEach(function(m){ m.t1.concat(m.t2).forEach(function(p){play[p]++;}); (m.rest||[]).forEach(function(p){rest[p]++;}); });
+  return {play:Math.max.apply(null,play), rest:Math.max.apply(null,rest)};
+}
+// Assign entered names to fixture slots so the first 4 entered always play match 1 (extras rest it),
+// and randomise which of the first four partner whom.
+function assignSlots(names,size){
+  var SC=SCHEDULES[size], rest1=SC[0].rest||[], playing1=[];
+  for(var i=0;i<size;i++) if(rest1.indexOf(i)<0) playing1.push(i);
+  var first=shuffle(names.slice(0,playing1.length)), extra=shuffle(names.slice(playing1.length));
+  var slot=new Array(size);
+  playing1.forEach(function(s,i){slot[s]=first[i];});
+  rest1.forEach(function(s,i){slot[s]=extra[i];});
+  return slot;
+}
+var CHANGEOVER_S=18, STORE="badminton_v3", ARCHIVE="badminton_archive_v3";
 
 var S=null;               // active tournament state (shared object; mirrored to cloud when online)
 var ONLINE=false, db=null, unsub=null, applyingRemote=false;
@@ -286,10 +317,10 @@ function randId(){var c="abcdefghijkmnpqrstuvwxyz23456789",s="";for(var i=0;i<6;
 
 /* ================= PURE LOGIC (brute-force verified) ================= */
 function computeStats(results){
-  var st=[];for(var i=0;i<6;i++)st.push({id:i,pts:0,pf:0,pa:0,diff:0,wins:0,played:0,rested:0});
+  var st=[];for(var i=0;i<S.size;i++)st.push({id:i,pts:0,pf:0,pa:0,diff:0,wins:0,played:0,rested:0});
   for(var i=0;i<SCHEDULE.length;i++){var r=results[i];if(!r)continue;var t1=SCHEDULE[i].t1,t2=SCHEDULE[i].t2;
     t1.concat(t2).forEach(function(p){st[p].played++;});
-    SCHEDULE[i].rest.forEach(function(p){st[p].rested++;});
+    (SCHEDULE[i].rest||[]).forEach(function(p){st[p].rested++;});
     t1.forEach(function(p){st[p].pf+=r.a;st[p].pa+=r.b;});t2.forEach(function(p){st[p].pf+=r.b;st[p].pa+=r.a;});
     var w=r.win==='A'?t1:t2;w.forEach(function(p){st[p].pts+=2;st[p].wins++;});}
   st.forEach(function(s){s.diff=s.pf-s.pa;});return st;
@@ -306,8 +337,9 @@ function tieGroupsNeedingResolution(stats,tieKey){
   while(i<r.length){var j=i+1;
     while(j<r.length&&r[j].pts===r[i].pts&&((tieKey[r[j].id]||0)===(tieKey[r[i].id]||0)))j++;
     if(j-i>1){var positions=[],ids=[];for(var k=i;k<j;k++){positions.push(k);ids.push(r[k].id);}
-      var subset=function(set){return positions.every(function(p){return set.indexOf(p)>=0;});};
-      if(!subset([1,2])&&!subset([4,5]))groups.push(ids);}
+      var subsetTop=positions.every(function(p){return [1,2].indexOf(p)>=0;}); // seeds 2 & 3 partner each other
+      var allOut=Math.min.apply(null,positions)>=4;                           // seeds 5+ all sit out the final
+      if(!subsetTop&&!allOut)groups.push(ids);}
     i=j;}
   return groups;
 }
@@ -344,7 +376,7 @@ function subscribe(id){
     if(!doc.exists) return;
     var data=doc.data();
     if(S && data.updatedAt && S.updatedAt && data.updatedAt < S.updatedAt) return; // ignore stale echo
-    applyingRemote=true; S=data; applyingRemote=false;
+    applyingRemote=true; S=data; applyingRemote=false; syncSchedule();
     renderCurrent(false);
   }, function(e){ setStatus("home","Live sync error: "+e.message); });
 }
@@ -375,7 +407,7 @@ function boot(){
   if(!ONLINE){
     var local=loadLocal();
     if(local && local.names){
-      if(confirm("Resume the tournament in progress?")){ S=local; renderCurrent(true); return; }
+      if(confirm("Resume the tournament in progress?")){ S=local; syncSchedule(); renderCurrent(true); return; }
       try{ localStorage.removeItem(STORE);}catch(e){}
     }
   }
@@ -392,22 +424,26 @@ function buildNameInputs(vals){
   var box=document.getElementById("nameInputs");box.innerHTML="";
   for(var i=0;i<6;i++){var row=document.createElement("div");row.className="row";
     row.innerHTML='<span class="let">'+(i+1)+'</span>';
-    var inp=document.createElement("input");inp.type="text";inp.placeholder="Player "+(i+1);inp.maxLength=18;inp.id="name"+i;inp.value=(vals&&vals[i])||"";
+    var inp=document.createElement("input");inp.type="text";inp.placeholder=i<4?"Player "+(i+1):"Player "+(i+1)+" (optional)";inp.maxLength=18;inp.id="name"+i;inp.value=(vals&&vals[i])||"";
     row.appendChild(inp);box.appendChild(row);}
 }
 function setErr(m){ document.getElementById("setupErr").textContent=m||""; }
 function startTournament(){
-  var names=[],seen={};
+  var names=[],seen={},blank=false;
   for(var i=0;i<6;i++){var v=document.getElementById("name"+i).value.trim();
-    if(!v)return setErr("Enter all 6 player names.");
+    if(!v){ blank=true; continue; }
+    if(blank) return setErr("Fill names top-to-bottom with no gaps.");
     if(seen[v.toLowerCase()])return setErr('Names must be unique — "'+v+'" is repeated.');
     seen[v.toLowerCase()]=1;names.push(v);}
+  if(names.length<4) return setErr("Enter at least 4 players (4, 5 or 6).");
   setErr("");
-  var slotNames=shuffle(names.slice(0,4)).concat(shuffle(names.slice(4,6)));
-  var now=Date.now();
-  S={id:randId(), names:slotNames, results:new Array(9).fill(null), phase:"league", matchIndex:0,
+  var N=names.length, glen=SCHEDULES[N].length;
+  var slotNames=assignSlots(names,N);
+  var now=Date.now(), dur=(N===4?1.5:2)*60*60*1000;
+  S={id:randId(), size:N, games:glen, names:slotNames, results:new Array(glen).fill(null), phase:"league", matchIndex:0,
      matchStart:now, tie:null, finalTeams:null, finalResult:null, champions:null,
-     startedAt:now, endAt:now+TOTAL_MS, updatedAt:now};
+     startedAt:now, endAt:now+dur, updatedAt:now};
+  syncSchedule();
   if(ONLINE){ setTournamentUrl(S.id); subscribe(S.id); }
   persist(); renderCurrent(true);
 }
@@ -415,11 +451,13 @@ function startTournament(){
 /* ================= CURRENT MATCH ================= */
 function currentMatch(){
   if(S.phase==="league"){var m=SCHEDULE[S.matchIndex];
-    return {t1:m.t1,t2:m.t2,rest:m.rest,tagA:"Team 1",tagB:"Team 2",header:"Match <b>"+(S.matchIndex+1)+"</b> of 9",tag:null};}
+    return {t1:m.t1,t2:m.t2,rest:m.rest,tagA:"Team 1",tagB:"Team 2",header:"Match <b>"+(S.matchIndex+1)+"</b> of "+SCHEDULE.length,tag:null};}
   if(S.phase==="final"){return {t1:S.finalTeams.A,t2:S.finalTeams.B,rest:null,tagA:"Seed 1 + Seed 4",tagB:"Seed 2 + Seed 3",header:"Winners take the tournament",tag:{cls:"final",txt:"🏆 FINAL"}};}
   return null;
 }
 function nm(ids){ return ids.map(function(x){return S.names[x];}).join("  &  "); }
+function restLine(ids){ if(!ids||!ids.length) return ""; return "Resting: "+ids.map(function(x){return "<b>"+escapeHtml(S.names[x])+"</b>";}).join(" &amp; "); }
+function finalRestLine(){ var inF={}; S.finalTeams.A.concat(S.finalTeams.B).forEach(function(x){inF[x]=1;}); var out=[]; for(var i=0;i<S.size;i++) if(!inF[i]) out.push(i); if(!out.length) return "All four play the final."; return "Sitting out the final: "+out.map(function(x){return "<b>"+escapeHtml(S.names[x])+"</b>";}).join(", ")+"."; }
 
 /* ================= RENDER (drives all active-tournament screens) ================= */
 function renderCurrent(resetInputs){
@@ -443,8 +481,7 @@ function renderPlay(resetInputs){
     document.getElementById("changeover").classList.remove("hidden");
     document.getElementById("matchArea").classList.add("hidden");
     document.getElementById("coNames").textContent=nm(cm.t1)+"  vs  "+nm(cm.t2);
-    if(cm.rest) document.getElementById("coRest").innerHTML="Resting: <b>"+S.names[cm.rest[0]]+"</b> &amp; <b>"+S.names[cm.rest[1]]+"</b>";
-    else document.getElementById("coRest").innerHTML="";
+    document.getElementById("coRest").innerHTML=restLine(cm.rest);
   } else {
     document.getElementById("changeover").classList.add("hidden");
     document.getElementById("matchArea").classList.remove("hidden");
@@ -456,15 +493,16 @@ function renderPlay(resetInputs){
     document.getElementById("namesA").textContent=nm(cm.t1);
     document.getElementById("namesB").textContent=nm(cm.t2);
     var rest=document.getElementById("resting");
-    if(cm.rest)rest.innerHTML="Resting: <b>"+S.names[cm.rest[0]]+"</b> &amp; <b>"+S.names[cm.rest[1]]+"</b>";
-    else if(S.phase==="final")rest.innerHTML="Seeds 5 &amp; 6 sit out the final.";
+    if(cm.rest&&cm.rest.length)rest.innerHTML=restLine(cm.rest);
+    else if(S.phase==="final")rest.innerHTML=finalRestLine();
     else rest.innerHTML="";
     var league=S.phase==="league";
     document.getElementById("undoBtn").style.display=(league&&S.matchIndex>0)?"block":"none";
     document.getElementById("skipBtn").style.display=league?"block":"none";
     var nu=document.getElementById("nextup");
-    if(league&&S.matchIndex+1<9){var nx=SCHEDULE[S.matchIndex+1];
-      nu.innerHTML="Up next — <b>"+nm(nx.t1)+"</b> vs <b>"+nm(nx.t2)+"</b> · rest "+S.names[nx.rest[0]]+", "+S.names[nx.rest[1]];nu.classList.remove("hidden");}
+    if(league&&S.matchIndex+1<SCHEDULE.length){var nx=SCHEDULE[S.matchIndex+1];
+      var rt=(nx.rest&&nx.rest.length)?" · rest "+nx.rest.map(function(x){return S.names[x];}).join(", "):"";
+      nu.innerHTML="Up next — <b>"+nm(nx.t1)+"</b> vs <b>"+nm(nx.t2)+"</b>"+rt;nu.classList.remove("hidden");}
     else nu.classList.add("hidden");
     // reset score inputs only when the match identity changed (protects in-progress typing on remote updates)
     if(resetInputs || key!==coRenderKey){
@@ -490,7 +528,7 @@ function recordResult(){
   if(S.phase==="league"){
     S.results[S.matchIndex]={win:win,a:a,b:b,dur:dur};
     S.matchIndex++;
-    if(S.matchIndex>=9){ persist(); afterLeague(); return; }
+    if(S.matchIndex>=SCHEDULE.length){ persist(); afterLeague(); return; }
     S.matchStart=Date.now()+CHANGEOVER_S*1000; // changeover before next
     persist(); renderPlay(true);
   } else if(S.phase==="final"){
@@ -541,8 +579,9 @@ function tbUndo(gi){ if(S.tie.orders&&S.tie.orders[gi])S.tie.orders[gi].pop(); p
 function flipCoin(){ document.getElementById("coinResult").textContent="🪙 "+(Math.random()<0.5?"Heads":"Tails"); }
 function pickExtra(){
   var tied={}; S.tie.groups.forEach(function(g){g.ids.forEach(function(id){tied[id]=1;});});
-  var others=[0,1,2,3,4,5].filter(function(id){return !tied[id];});
-  var pool=others.length?others:[0,1,2,3,4,5];
+  var all=[];for(var i=0;i<S.size;i++)all.push(i);
+  var others=all.filter(function(id){return !tied[id];});
+  var pool=others.length?others:all;
   document.getElementById("coinResult").textContent="🎲 Extra player: "+S.names[pool[Math.floor(Math.random()*pool.length)]];
 }
 function confirmTiebreak(){
@@ -575,10 +614,11 @@ function startFinal(){ S.phase="final"; S.matchStart=Date.now(); persist(); rend
 
 /* ================= STANDINGS / HISTORY ================= */
 function boardRows(r,medals){
-  var m=["🥇","🥈","🥉"];
+  var m=["🥇","🥈","🥉"], d=denoms();
   var html="<tr><th class='rank'>#</th><th>Player</th><th style='text-align:right'>Pts</th><th style='text-align:right'>Played</th><th style='text-align:right'>Rest</th></tr>";
   for(var i=0;i<r.length;i++){var s=r[i];var cls=(medals&&i<3)?" class='top'":"";var md=medals&&i<3?m[i]+" ":"";
-    html+="<tr"+cls+"><td class='rank'>"+(i+1)+"</td><td>"+md+escapeHtml(S.names[s.id])+"</td><td class='n'>"+s.pts+"</td><td class='d'>"+s.played+"/6</td><td class='d'>"+s.rested+"/3</td></tr>";}
+    var restCell=d.rest?(s.rested+"/"+d.rest):"0";
+    html+="<tr"+cls+"><td class='rank'>"+(i+1)+"</td><td>"+md+escapeHtml(S.names[s.id])+"</td><td class='n'>"+s.pts+"</td><td class='d'>"+s.played+"/"+d.play+"</td><td class='d'>"+restCell+"</td></tr>";}
   return html;
 }
 var miniOpen=false;
@@ -586,13 +626,13 @@ function toggleMini(){miniOpen=!miniOpen;document.getElementById("miniBoard").cl
 function renderMini(){ if(!miniOpen)return; document.getElementById("miniBoard").innerHTML="<table>"+boardRows(ranking(computeStats(S.results),(S.tie&&S.tie.tieKey)||{}),false)+"</table>"; }
 
 function histRow(num,win,lose,sw,sl,rest,dur,kind){
-  var meta=[];if(rest)meta.push("Rested: "+escapeHtml(S.names[rest[0]])+", "+escapeHtml(S.names[rest[1]]));if(dur!=null)meta.push("⏱ "+fmtDur(dur));
+  var meta=[];if(rest&&rest.length)meta.push("Rested: "+rest.map(function(x){return escapeHtml(S.names[x]);}).join(", "));if(dur!=null)meta.push("⏱ "+fmtDur(dur));
   var cls=kind==="final"?" hfinal":(kind==="tie"?" htie":"");var badge=kind==="final"?"🏆":(kind==="tie"?"🎯":num);
   return "<div class='hrow"+cls+"'><div class='hnum'>"+badge+"</div><div class='hbody'><div class='hteams'><span class='hwin'>"+escapeHtml(nm(win))+"</span><span class='hbeat'>"+sw+"–"+sl+"</span><span class='hlose'>"+escapeHtml(nm(lose))+"</span></div>"+(meta.length?"<div class='hmeta'>"+meta.join(" · ")+"</div>":"")+"</div></div>";
 }
 function historyHTML(){
   var rows="";
-  for(var i=0;i<9;i++){var r=S.results[i];if(!r)continue;var m=SCHEDULE[i];
+  for(var i=0;i<SCHEDULE.length;i++){var r=S.results[i];if(!r)continue;var m=SCHEDULE[i];
     var win=r.win==='A'?m.t1:m.t2,lose=r.win==='A'?m.t2:m.t1;rows+=histRow(i+1,win,lose,Math.max(r.a,r.b),Math.min(r.a,r.b),m.rest,r.dur,"league");}
   if(S.tie&&S.tie.orders){var parts=[];
     S.tie.groups.forEach(function(g,gi){var ord=(S.tie.orders[gi]||[]);if(ord.length===g.ids.length)parts.push(ord.map(function(id){return escapeHtml(S.names[id]);}).join(" › "));});
@@ -656,8 +696,9 @@ function aggregateLeaderboard(tournaments){
       t.names.forEach(function(n){ if(!seen[n.toLowerCase()]){seen[n.toLowerCase()]=1; ensure(n).tournaments++;} });
       return;
     }
-    // league match wins
-    for(var i=0;i<9;i++){var r=t.results&&t.results[i];if(!r)continue;var m=SCHEDULE[i];var w=r.win==='A'?m.t1:m.t2;
+    // league match wins — use THIS tournament's own fixture/size (default 6 for older records)
+    var SC=SCHEDULES[t.size||6];
+    for(var i=0;i<SC.length;i++){var r=t.results&&t.results[i];if(!r)continue;var m=SC[i];var w=r.win==='A'?m.t1:m.t2;
       w.forEach(function(p){ensure(t.names[p]).wins++;});
     }
     // tiebreak singles wins
