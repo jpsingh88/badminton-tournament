@@ -58,16 +58,16 @@ This fixture is mathematically balanced: everyone plays 6 / rests 3, **max strea
 
 ### Ranking & tie-breaks
 
-After 9 matches, players are ranked by **total points** (2 per win).
+Players are ranked by a chain, each step only used if the one before couldn't separate them:
 
-If players are **level on points** in a way that affects the final (e.g. tied around the seed 3/4/5 line), the app runs a **guided knockout** instead of deciding it by a formula:
+1. **Total points** (2 per win).
+2. **Point differential** — total points scored minus conceded across the league.
+3. **Head-to-head** — among players still level, who beat whom when they met on opposite teams.
+4. **Guided knockout** — only when players are *genuinely identical* on all of the above **and** their order affects the final.
 
-- It names exactly who's tied and which seeds are at stake.
-- It gives you a **coin-toss helper** (flip a coin, or pick a random extra player to make up a doubles four).
-- You play the knockout however you like — doubles, singles, whatever — then **tap the tied players in their finishing order**.
-- The app seeds the final from the order you enter and records it in the match history.
+Steps 2–3 resolve the vast majority of ties automatically, with no extra games and no luck — a knockout is now needed in only ~1–3% of tournaments (it used to be most of them). When one is needed, the app names who's tied, offers a **coin-toss helper**, lets you play it out however you like (doubles, singles, coin toss), then you **tap the finishing order** and it seeds the final from that, recording it in match history.
 
-Ties that don't change anything (e.g. seeds 2 and 3, who partner each other anyway, or seeds 5 and 6) are left alone — no pointless extra matches. Because points land on even numbers, expect a knockout in most tournaments.
+Ties that don't change anything (seeds 2 and 3, who partner each other anyway; or seeds 5+, who sit out) are ignored — no pointless extra matches.
 
 ### The final
 
@@ -87,7 +87,7 @@ This keeps the final balanced instead of stacking the two best players together.
 4. **Standings & history.** Tap **Standings ▾** for the live leaderboard (points + differential). The **Match history** panel below shows every completed match with scores, durations, and resters.
 5. **Fix a mistake.** **↩︎ Undo last result** reverses the previous league match.
 6. **Running short on time?** **⏭ Go to final now** skips remaining league matches and seeds the final from what's played.
-7. **Tie-break knockout (only if needed).** If players are level on points where it affects the final, the app opens the knockout screen: use the coin-toss helper, play it out, and tap the finishing order. It seeds the final from that.
+7. **Tie-break knockout (rarely needed).** Only if players are genuinely identical on points, differential, and head-to-head does the knockout screen open: use the coin-toss helper, play it out, and tap the finishing order. It seeds the final from that.
 8. **The final.** After seeding, tap **Play the Final**, enter the score, and the champions are crowned with the full standings and history below.
 9. **New event.** Tap **New Tournament** to start over.
 

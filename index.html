@@ -325,17 +325,45 @@ function computeStats(results){
     var w=r.win==='A'?t1:t2;w.forEach(function(p){st[p].pts+=2;st[p].wins++;});}
   st.forEach(function(s){s.diff=s.pf-s.pa;});return st;
 }
-// Ranking: league points first, then the knockout finishing order (tieKey), then id.
-// Point differential is NOT used to decide seeding — ties on points are played out via a knockout.
-function ranking(stats,tieKey){tieKey=tieKey||{};return stats.slice().sort(function(a,b){
-  if(b.pts!==a.pts)return b.pts-a.pts;
-  var ka=(tieKey[a.id]||0),kb=(tieKey[b.id]||0);if(ka!==kb)return ka-kb;return a.id-b.id;});}
-// Groups of players level on POINTS whose order actually affects the final (skip seed2/3 partners and seed5/6).
-function tieGroupsNeedingResolution(stats,tieKey){
-  tieKey=tieKey||{};
-  var r=ranking(stats,tieKey),groups=[],i=0;
+// Head-to-head net (wins minus losses) among a set of tied players, from their league encounters
+// on opposite teams. Used only to separate players already level on points AND differential.
+function h2hNet(ids,results){
+  var net={},g={}; ids.forEach(function(p){net[p]=0;g[p]=1;});
+  for(var i=0;i<SCHEDULE.length;i++){var r=results[i];if(!r)continue;
+    var W=r.win==='A'?SCHEDULE[i].t1:SCHEDULE[i].t2, L=r.win==='A'?SCHEDULE[i].t2:SCHEDULE[i].t1;
+    W.forEach(function(w){ if(g[w]) L.forEach(function(l){ if(g[l]) net[w]++; }); });
+    L.forEach(function(l){ if(g[l]) W.forEach(function(w){ if(g[w]) net[l]--; }); });
+  }
+  return net;
+}
+// For every player, head-to-head net WITHIN their own (points, differential) tie group (0 if not tied).
+function effNet(stats,results){
+  var base=stats.slice().sort(function(a,b){return b.pts-a.pts||b.diff-a.diff||a.id-b.id;});
+  var net={},i=0;
+  while(i<base.length){var j=i+1;while(j<base.length&&base[j].pts===base[i].pts&&base[j].diff===base[i].diff)j++;
+    var ids=base.slice(i,j).map(function(s){return s.id;});
+    if(ids.length>1){var hn=h2hNet(ids,results);ids.forEach(function(id){net[id]=hn[id];});} else net[ids[0]]=0;
+    i=j;}
+  return net;
+}
+// Ranking order: 1) points  2) point differential  3) head-to-head  4) knockout order (tieKey)  5) id.
+function ranking(stats,tieKey,results){
+  tieKey=tieKey||{}; results=results||(typeof S!=="undefined"&&S?S.results:[]);
+  var net=effNet(stats,results);
+  return stats.slice().sort(function(a,b){
+    if(b.pts!==a.pts)return b.pts-a.pts;
+    if(b.diff!==a.diff)return b.diff-a.diff;
+    if(net[b.id]!==net[a.id])return net[b.id]-net[a.id];
+    var ka=(tieKey[a.id]||0),kb=(tieKey[b.id]||0);if(ka!==kb)return ka-kb;
+    return a.id-b.id;});
+}
+// Groups still GENUINELY tied (same points, differential AND head-to-head) whose order affects the final.
+// These — and only these — need the guided knockout.
+function tieGroupsNeedingResolution(stats,tieKey,results){
+  tieKey=tieKey||{}; results=results||(typeof S!=="undefined"&&S?S.results:[]);
+  var net=effNet(stats,results), r=ranking(stats,tieKey,results), groups=[], i=0;
   while(i<r.length){var j=i+1;
-    while(j<r.length&&r[j].pts===r[i].pts&&((tieKey[r[j].id]||0)===(tieKey[r[i].id]||0)))j++;
+    while(j<r.length && r[j].pts===r[i].pts && r[j].diff===r[i].diff && net[r[j].id]===net[r[i].id] && ((tieKey[r[j].id]||0)===(tieKey[r[i].id]||0)))j++;
     if(j-i>1){var positions=[],ids=[];for(var k=i;k<j;k++){positions.push(k);ids.push(r[k].id);}
       var subsetTop=positions.every(function(p){return [1,2].indexOf(p)>=0;}); // seeds 2 & 3 partner each other
       var allOut=Math.min.apply(null,positions)>=4;                           // seeds 5+ all sit out the final
@@ -552,7 +580,7 @@ function afterLeague(){
 function renderTiebreak(){
   show("tiebreak");
   var stats=computeStats(S.results), groups=S.tie.groups;
-  document.getElementById("tbExplain").innerHTML="These players finished level on <b>points</b>, so their seeding for the final isn't decided yet. Play a knockout however you like — doubles (use the coin-toss to pick an extra player and draw teams), singles, whatever — then tap the tied players below in their <b>finishing order (best first)</b>. The final is seeded from that order.";
+  document.getElementById("tbExplain").innerHTML="These players are <b>still exactly level</b> — same points, same point differential, and head-to-head couldn't separate them — so their seeding for the final isn't decided. Play a knockout however you like — doubles (use the coin-toss to pick an extra player and draw teams), singles, whatever — then tap them below in <b>finishing order (best first)</b>. The final is seeded from that order.";
   document.getElementById("tbBoard").innerHTML="<table>"+boardRows(ranking(stats,{}),false)+"</table>";
   var html="";
   groups.forEach(function(g,gi){
@@ -603,11 +631,11 @@ function renderSeeding(){
   var r=ranking(computeStats(S.results),(S.tie&&S.tie.tieKey)||{});
   if(!S.finalTeams) S.finalTeams={A:[r[0].id,r[3].id],B:[r[1].id,r[2].id]};
   var html="";
-  for(var i=0;i<r.length;i++)html+='<div class="seedrow"><span><span class="s">Seed '+(i+1)+'</span> &nbsp; '+escapeHtml(S.names[r[i].id])+'</span><span>'+r[i].pts+' pts · rested '+r[i].rested+'</span></div>';
+  for(var i=0;i<r.length;i++)html+='<div class="seedrow"><span><span class="s">Seed '+(i+1)+'</span> &nbsp; '+escapeHtml(S.names[r[i].id])+'</span><span>'+r[i].pts+' pts · '+(r[i].diff>=0?"+":"")+r[i].diff+'</span></div>';
   document.getElementById("seedList").innerHTML=html;
   document.getElementById("finalA").textContent=nm(S.finalTeams.A);
   document.getElementById("finalB").textContent=nm(S.finalTeams.B);
-  document.getElementById("seedNote").textContent=(S.tie&&S.tie.tieKey&&Object.keys(S.tie.tieKey).length)?"Players level on points were ordered by your knockout result.":"Seeded on league points.";
+  document.getElementById("seedNote").textContent=(S.tie&&S.tie.tieKey&&Object.keys(S.tie.tieKey).length)?"Seeded on points, then point differential, then head-to-head; any dead-even ties settled by your knockout.":"Seeded on points, then point differential, then head-to-head.";
   show("seeding");
 }
 function startFinal(){ S.phase="final"; S.matchStart=Date.now(); persist(); renderCurrent(true); }
