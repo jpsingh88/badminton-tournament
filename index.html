@@ -92,6 +92,11 @@
   .hfinal .hnum{background:rgba(241,196,15,.16);border-color:var(--gold);color:var(--gold);font-size:14px;}
   .htie .hnum{background:rgba(155,89,182,.18);border-color:var(--purple);color:var(--purple);font-size:12px;}
   .hempty{color:var(--dim);font-size:13px;text-align:center;padding:6px 0;}
+  .sugg{flex:0 0 100%;background:var(--card2);border:1px solid var(--line);border-radius:10px;margin-top:6px;max-height:220px;overflow-y:auto;}
+  .sugg div{padding:12px;font-size:15px;border-bottom:1px solid var(--line);cursor:pointer;color:var(--txt);}
+  .sugg div:last-child{border-bottom:none;}
+  .sugg div:active{background:var(--card);}
+  .rmbtn{width:auto;padding:6px 10px;font-size:13px;margin-left:6px;}
   .homebtns>button{margin-bottom:10px;}
   .status{font-size:12px;color:var(--dim);text-align:center;min-height:15px;margin-top:4px;}
 </style>
@@ -256,6 +261,10 @@
     <label style="margin-top:0;">All players</label>
     <div id="rosterList2"></div>
   </div>
+  <div class="card hidden" id="hiddenCard">
+    <label style="margin-top:0;">Removed (hidden everywhere)</label>
+    <div id="hiddenList"></div>
+  </div>
   <div class="status" id="rosterStatus"></div>
   <button class="btn-ghost" onclick="goHome()">← Home</button>
 </section>
@@ -337,8 +346,9 @@ function randId(){var c="abcdefghijkmnpqrstuvwxyz23456789",s="";for(var i=0;i<6;
 function jsstr(s){return String(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'");}
 
 /* ================= PLAYER ROSTER (autocomplete + de-dup / merge) ================= */
-var ROSTER={players:[],aliases:{}};   // players: canonical names; aliases: lowercased-misspelling -> canonical name
-function normRoster(d){ d=d||{}; return {players:Array.isArray(d.players)?d.players:[], aliases:(d.aliases&&typeof d.aliases==="object")?d.aliases:{}}; }
+var ROSTER={players:[],aliases:{},hidden:[]};   // players: canonical names; aliases: misspelling->canonical; hidden: names to drop everywhere
+function normRoster(d){ d=d||{}; return {players:Array.isArray(d.players)?d.players:[], aliases:(d.aliases&&typeof d.aliases==="object")?d.aliases:{}, hidden:Array.isArray(d.hidden)?d.hidden:[]}; }
+function isHidden(name){ return ROSTER.hidden.indexOf(canon(name).toLowerCase())>=0; }
 function loadRoster(cb){
   if(ONLINE&&db){ db.collection("meta").doc("roster").get().then(function(doc){ if(doc.exists)ROSTER=normRoster(doc.data()); if(cb)cb(); }).catch(function(){ if(cb)cb(); }); }
   else { try{ROSTER=normRoster(JSON.parse(localStorage.getItem("badminton_roster")||"{}"));}catch(e){} if(cb)cb(); }
@@ -353,14 +363,27 @@ function canon(name){ var t=(name||"").trim(); if(!t)return ""; var low=t.toLowe
   for(var i=0;i<ROSTER.players.length;i++) if(ROSTER.players[i].toLowerCase()===low) return ROSTER.players[i];
   return t; }
 function rememberPlayers(nameArr){ var added=false; nameArr.forEach(function(n){ var c=canon(n);
-  if(c && !ROSTER.players.some(function(p){return p.toLowerCase()===c.toLowerCase();})){ ROSTER.players.push(c); added=true; } });
+  if(c && !isHidden(c) && !ROSTER.players.some(function(p){return p.toLowerCase()===c.toLowerCase();})){ ROSTER.players.push(c); added=true; } });
   if(added){ ROSTER.players.sort(); saveRoster(); } }
 function renderRosterDatalist(){ var dl=document.getElementById("rosterList"); if(!dl)return;
   dl.innerHTML=ROSTER.players.slice().sort().map(function(p){return "<option value=\""+escapeHtml(p)+"\"></option>";}).join(""); }
-// Teach the dropdown any names it doesn't know yet (from history / leaderboard).
+// Teach the dropdown any names it doesn't know yet (from history / leaderboard), skipping hidden ones.
 function backfillRoster(nameList){ var added=false; nameList.forEach(function(n){ var c=canon(n);
-  if(c&&!ROSTER.players.some(function(p){return p.toLowerCase()===c.toLowerCase();})){ ROSTER.players.push(c); added=true; } });
-  if(added){ ROSTER.players.sort(); saveRoster(); renderRosterDatalist(); } }
+  if(c&&!isHidden(c)&&!ROSTER.players.some(function(p){return p.toLowerCase()===c.toLowerCase();})){ ROSTER.players.push(c); added=true; } });
+  if(added){ ROSTER.players.sort(); saveRoster(); } }
+// Custom autocomplete dropdown (works on mobile + desktop; hides already-picked and hidden names).
+function showSugg(i){
+  var inp=document.getElementById("name"+i); if(!inp)return;
+  var val=inp.value.trim().toLowerCase(), chosen={};
+  for(var k=0;k<6;k++){ if(k===i)continue; var v=document.getElementById("name"+k).value.trim(); if(v)chosen[canon(v).toLowerCase()]=1; }
+  var list=ROSTER.players.filter(function(p){var pl=p.toLowerCase(); return !isHidden(p) && !chosen[pl] && (val===""||pl.indexOf(val)>=0);}).sort();
+  var box=document.getElementById("sugg"+i);
+  if(!list.length){ box.classList.add("hidden"); box.innerHTML=""; return; }
+  box.innerHTML=list.map(function(p){return "<div onmousedown=\"event.preventDefault()\" onclick=\"pickName("+i+",'"+jsstr(p)+"')\">"+escapeHtml(p)+"</div>";}).join("");
+  box.classList.remove("hidden");
+}
+function hideSugg(i){ var b=document.getElementById("sugg"+i); if(b)b.classList.add("hidden"); }
+function pickName(i,name){ var inp=document.getElementById("name"+i); inp.value=name; hideSugg(i); }
 // similarity for duplicate suggestions
 function lev(a,b){a=a.toLowerCase();b=b.toLowerCase();var m=a.length,n=b.length,d=[];var i,j;for(i=0;i<=m;i++)d[i]=[i];for(j=0;j<=n;j++)d[0][j]=j;
   for(i=1;i<=m;i++)for(j=1;j<=n;j++)d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1));return d[m][n];}
@@ -380,8 +403,8 @@ function collectAllNames(cb){ var names={}; ROSTER.players.forEach(function(p){n
 function renderRoster(rawNames){
   document.getElementById("rosterStatus").textContent="";
   var canonSet={}; rawNames.forEach(function(n){var c=canon(n);if(c)canonSet[c.toLowerCase()]=c;});
-  var names=Object.keys(canonSet).map(function(k){return canonSet[k];}).sort();
-  backfillRoster(names);   // learn all existing players into the dropdown
+  backfillRoster(Object.keys(canonSet).map(function(k){return canonSet[k];}));   // learn existing players into the dropdown
+  var names=Object.keys(canonSet).map(function(k){return canonSet[k];}).filter(function(n){return !isHidden(n);}).sort();
   var pairs=[]; for(var i=0;i<names.length;i++)for(var j=i+1;j<names.length;j++) if(similar(names[i],names[j])) pairs.push([names[i],names[j]]);
   var dc=document.getElementById("dupCard");
   if(pairs.length){ dc.classList.remove("hidden");
@@ -393,8 +416,17 @@ function renderRoster(rawNames){
   } else dc.classList.add("hidden");
   var opts="<option value=''>merge into…</option>"+names.map(function(n){return "<option value=\""+escapeHtml(n)+"\">"+escapeHtml(n)+"</option>";}).join("");
   document.getElementById("rosterList2").innerHTML=names.map(function(n){
-    return "<div class='seedrow'><span>"+escapeHtml(n)+"</span><span><select onchange=\"if(this.value)doMerge('"+jsstr(n)+"',this.value)\" style='background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:6px;font-size:13px;'>"+opts+"</select></span></div>";
+    return "<div class='seedrow'><span>"+escapeHtml(n)+"</span><span>"
+      +"<select onchange=\"if(this.value)doMerge('"+jsstr(n)+"',this.value)\" style='background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:6px;font-size:13px;'>"+opts+"</select>"
+      +"<button class='btn-ghost btn-small rmbtn' onclick=\"removePlayer('"+jsstr(n)+"')\">Remove</button></span></div>";
   }).join("");
+  // hidden / removed players
+  var hc=document.getElementById("hiddenCard");
+  if(ROSTER.hidden.length){ hc.classList.remove("hidden");
+    document.getElementById("hiddenList").innerHTML=ROSTER.hidden.slice().sort().map(function(low){
+      return "<div class='seedrow'><span style='color:var(--dim)'>"+escapeHtml(low)+"</span><span><button class='btn-ghost btn-small rmbtn' onclick=\"restoreHidden('"+jsstr(low)+"')\">Restore</button></span></div>";
+    }).join("");
+  } else hc.classList.add("hidden");
 }
 function doMerge(from,to){ if(!from||!to||from.toLowerCase()===to.toLowerCase())return;
   ROSTER.aliases[from.toLowerCase()]=to;
@@ -402,6 +434,12 @@ function doMerge(from,to){ if(!from||!to||from.toLowerCase()===to.toLowerCase())
   ROSTER.players=ROSTER.players.filter(function(p){return p.toLowerCase()!==from.toLowerCase();});
   if(!ROSTER.players.some(function(p){return p.toLowerCase()===to.toLowerCase();})) ROSTER.players.push(to);
   ROSTER.players.sort(); saveRoster(); openRoster(); }
+// Remove = hide a name everywhere (dropdown, history, leaderboard). Non-destructive; restorable below.
+function removePlayer(name){ var c=canon(name).toLowerCase();
+  if(ROSTER.hidden.indexOf(c)<0) ROSTER.hidden.push(c);
+  ROSTER.players=ROSTER.players.filter(function(p){return p.toLowerCase()!==c;});
+  saveRoster(); openRoster(); }
+function restoreHidden(low){ ROSTER.hidden=ROSTER.hidden.filter(function(x){return x!==low;}); saveRoster(); openRoster(); }
 
 /* ================= PURE LOGIC (brute-force verified) ================= */
 function computeStats(results){
@@ -540,12 +578,14 @@ function setStatus(where,msg){ var el=document.getElementById(where+"Status"); i
 /* ================= SETUP ================= */
 function buildNameInputs(vals){
   var box=document.getElementById("nameInputs");box.innerHTML="";
-  for(var i=0;i<6;i++){var row=document.createElement("div");row.className="row";
+  for(var i=0;i<6;i++){var row=document.createElement("div");row.className="row";row.style.flexWrap="wrap";
     row.innerHTML='<span class="let">'+(i+1)+'</span>';
     var inp=document.createElement("input");inp.type="text";inp.placeholder=i<4?"Player "+(i+1):"Player "+(i+1)+" (optional)";inp.maxLength=18;inp.id="name"+i;inp.value=(vals&&vals[i])||"";
-    inp.setAttribute("list","rosterList");inp.setAttribute("autocomplete","off");
-    row.appendChild(inp);box.appendChild(row);}
-  renderRosterDatalist();
+    inp.setAttribute("autocomplete","off");inp.setAttribute("autocorrect","off");inp.setAttribute("autocapitalize","words");inp.style.flex="1";
+    (function(idx,el){ el.addEventListener("focus",function(){showSugg(idx);}); el.addEventListener("input",function(){showSugg(idx);}); el.addEventListener("blur",function(){setTimeout(function(){hideSugg(idx);},200);}); })(i,inp);
+    row.appendChild(inp);
+    var sg=document.createElement("div");sg.className="sugg hidden";sg.id="sugg"+i;row.appendChild(sg);
+    box.appendChild(row);}
 }
 function setErr(m){ document.getElementById("setupErr").textContent=m||""; }
 function startTournament(){
@@ -836,6 +876,7 @@ function aggregateLeaderboard(tournaments){
   });
   var rows=Object.keys(agg).map(function(k){return agg[k];});
   backfillRoster(rows.map(function(r){return r.name;}));   // learn existing players into the dropdown
+  rows=rows.filter(function(r){return !isHidden(r.name);}); // drop removed/test names from the leaderboard
   rows.sort(function(a,b){ if(b.wins!==a.wins)return b.wins-a.wins; if(b.titles!==a.titles)return b.titles-a.titles; return a.name.localeCompare(b.name); });
   var html="<tr><th class='rank'>#</th><th>Player</th><th style='text-align:right'>Wins</th><th style='text-align:right'>🏆</th><th style='text-align:right'>Events</th></tr>";
   if(rows.length===0) html+="<tr><td colspan='5' style='color:var(--dim);text-align:center;padding:16px;'>No completed tournaments yet.</td></tr>";
