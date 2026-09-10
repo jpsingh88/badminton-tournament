@@ -107,6 +107,7 @@
   <div class="card homebtns">
     <button class="btn-go" onclick="newTournament()">＋ New Tournament</button>
     <button class="btn-ghost" onclick="openLeaderboard()">🏅 All-time Leaderboard</button>
+    <button class="btn-ghost" onclick="openRoster()">👥 Manage players</button>
   </div>
   <div class="status" id="homeStatus"></div>
 </section>
@@ -116,6 +117,7 @@
   <div class="card">
     <label>Enter 4, 5 or 6 players (leave the rest blank)</label>
     <div id="nameInputs"></div>
+    <datalist id="rosterList"></datalist>
     <div class="note" style="text-align:left;margin-top:6px;">The first 4 entered start Match 1 (teams drawn at random); any extras rest first. Fixtures are balanced so play and rest are shared evenly. 4 players = 6 games (~1.5 hr), 5 = 10 games, 6 = 9 games (~2 hr), then a seeded final.</div>
   </div>
   <div class="err" id="setupErr"></div>
@@ -240,6 +242,24 @@
   <button class="btn-go" onclick="goHome()">Home</button>
 </section>
 
+<!-- MANAGE PLAYERS -->
+<section id="roster" class="hidden">
+  <div class="card">
+    <h1 style="font-size:18px;margin-top:0;">👥 Manage players</h1>
+    <div class="note" style="margin-top:0;text-align:left;">Merge a misspelling into the correct name. Merges apply everywhere — past tournaments, history and the leaderboard — without changing your saved results.</div>
+  </div>
+  <div class="card hidden" id="dupCard">
+    <label style="margin-top:0;">Possible duplicates — tap the name to keep</label>
+    <div id="dupList"></div>
+  </div>
+  <div class="card">
+    <label style="margin-top:0;">All players</label>
+    <div id="rosterList2"></div>
+  </div>
+  <div class="status" id="rosterStatus"></div>
+  <button class="btn-ghost" onclick="goHome()">← Home</button>
+</section>
+
 <!-- LEADERBOARD -->
 <section id="leaderboard" class="hidden">
   <div class="card">
@@ -314,6 +334,74 @@ function shuffle(a){a=a.slice();for(var i=a.length-1;i>0;i--){var j=Math.floor(M
 function pad(n){return n<10?"0"+n:""+n;}
 function escapeHtml(s){return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c];});}
 function randId(){var c="abcdefghijkmnpqrstuvwxyz23456789",s="";for(var i=0;i<6;i++)s+=c[Math.floor(Math.random()*c.length)];return s;}
+function jsstr(s){return String(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'");}
+
+/* ================= PLAYER ROSTER (autocomplete + de-dup / merge) ================= */
+var ROSTER={players:[],aliases:{}};   // players: canonical names; aliases: lowercased-misspelling -> canonical name
+function normRoster(d){ d=d||{}; return {players:Array.isArray(d.players)?d.players:[], aliases:(d.aliases&&typeof d.aliases==="object")?d.aliases:{}}; }
+function loadRoster(cb){
+  if(ONLINE&&db){ db.collection("meta").doc("roster").get().then(function(doc){ if(doc.exists)ROSTER=normRoster(doc.data()); if(cb)cb(); }).catch(function(){ if(cb)cb(); }); }
+  else { try{ROSTER=normRoster(JSON.parse(localStorage.getItem("badminton_roster")||"{}"));}catch(e){} if(cb)cb(); }
+}
+function saveRoster(){
+  if(ONLINE&&db){ db.collection("meta").doc("roster").set(ROSTER).catch(function(){}); }
+  else { try{localStorage.setItem("badminton_roster",JSON.stringify(ROSTER));}catch(e){} }
+}
+// Resolve a typed name to its canonical spelling (alias > known player casing > as-typed).
+function canon(name){ var t=(name||"").trim(); if(!t)return ""; var low=t.toLowerCase();
+  if(ROSTER.aliases[low])return ROSTER.aliases[low];
+  for(var i=0;i<ROSTER.players.length;i++) if(ROSTER.players[i].toLowerCase()===low) return ROSTER.players[i];
+  return t; }
+function rememberPlayers(nameArr){ var added=false; nameArr.forEach(function(n){ var c=canon(n);
+  if(c && !ROSTER.players.some(function(p){return p.toLowerCase()===c.toLowerCase();})){ ROSTER.players.push(c); added=true; } });
+  if(added){ ROSTER.players.sort(); saveRoster(); } }
+function renderRosterDatalist(){ var dl=document.getElementById("rosterList"); if(!dl)return;
+  dl.innerHTML=ROSTER.players.slice().sort().map(function(p){return "<option value=\""+escapeHtml(p)+"\"></option>";}).join(""); }
+// Teach the dropdown any names it doesn't know yet (from history / leaderboard).
+function backfillRoster(nameList){ var added=false; nameList.forEach(function(n){ var c=canon(n);
+  if(c&&!ROSTER.players.some(function(p){return p.toLowerCase()===c.toLowerCase();})){ ROSTER.players.push(c); added=true; } });
+  if(added){ ROSTER.players.sort(); saveRoster(); renderRosterDatalist(); } }
+// similarity for duplicate suggestions
+function lev(a,b){a=a.toLowerCase();b=b.toLowerCase();var m=a.length,n=b.length,d=[];var i,j;for(i=0;i<=m;i++)d[i]=[i];for(j=0;j<=n;j++)d[0][j]=j;
+  for(i=1;i<=m;i++)for(j=1;j<=n;j++)d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1));return d[m][n];}
+function similar(a,b){var la=a.toLowerCase(),lb=b.toLowerCase();if(la===lb)return false;
+  if(la.indexOf(lb)===0||lb.indexOf(la)===0)return Math.abs(la.length-lb.length)<=3;
+  return lev(a,b)<=2&&Math.min(a.length,b.length)>=4;}
+
+/* ---- Manage players screen ---- */
+function openRoster(){ show("roster"); document.getElementById("rosterStatus").textContent="Loading…";
+  loadRoster(function(){ collectAllNames(function(raw){ renderRoster(raw); }); }); }
+function collectAllNames(cb){ var names={}; ROSTER.players.forEach(function(p){names[p]=1;});
+  function fromDocs(docs){ docs.forEach(function(t){ (t.names||[]).forEach(function(n){names[n]=1;});
+    if(t.championsNames)t.championsNames.forEach(function(n){names[n]=1;});
+    if(t.playerWins)Object.keys(t.playerWins).forEach(function(n){names[n]=1;}); }); cb(Object.keys(names)); }
+  if(ONLINE&&db){ db.collection("tournaments").get().then(function(qs){var d=[];qs.forEach(function(x){d.push(x.data());});fromDocs(d);}).catch(function(){cb(Object.keys(names));}); }
+  else { var arr=[];try{arr=JSON.parse(localStorage.getItem(ARCHIVE)||"[]");}catch(e){} fromDocs(arr); } }
+function renderRoster(rawNames){
+  document.getElementById("rosterStatus").textContent="";
+  var canonSet={}; rawNames.forEach(function(n){var c=canon(n);if(c)canonSet[c.toLowerCase()]=c;});
+  var names=Object.keys(canonSet).map(function(k){return canonSet[k];}).sort();
+  backfillRoster(names);   // learn all existing players into the dropdown
+  var pairs=[]; for(var i=0;i<names.length;i++)for(var j=i+1;j<names.length;j++) if(similar(names[i],names[j])) pairs.push([names[i],names[j]]);
+  var dc=document.getElementById("dupCard");
+  if(pairs.length){ dc.classList.remove("hidden");
+    document.getElementById("dupList").innerHTML=pairs.map(function(p){
+      return "<div class='seedrow'><span>"+escapeHtml(p[0])+" ↔ "+escapeHtml(p[1])+"</span><span>"
+        +"<button class='btn-ghost btn-small' style='width:auto;padding:6px 10px;margin-left:6px;' onclick=\"doMerge('"+jsstr(p[0])+"','"+jsstr(p[1])+"')\">keep "+escapeHtml(p[1])+"</button>"
+        +"<button class='btn-ghost btn-small' style='width:auto;padding:6px 10px;margin-left:6px;' onclick=\"doMerge('"+jsstr(p[1])+"','"+jsstr(p[0])+"')\">keep "+escapeHtml(p[0])+"</button></span></div>";
+    }).join("");
+  } else dc.classList.add("hidden");
+  var opts="<option value=''>merge into…</option>"+names.map(function(n){return "<option value=\""+escapeHtml(n)+"\">"+escapeHtml(n)+"</option>";}).join("");
+  document.getElementById("rosterList2").innerHTML=names.map(function(n){
+    return "<div class='seedrow'><span>"+escapeHtml(n)+"</span><span><select onchange=\"if(this.value)doMerge('"+jsstr(n)+"',this.value)\" style='background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:6px;font-size:13px;'>"+opts+"</select></span></div>";
+  }).join("");
+}
+function doMerge(from,to){ if(!from||!to||from.toLowerCase()===to.toLowerCase())return;
+  ROSTER.aliases[from.toLowerCase()]=to;
+  Object.keys(ROSTER.aliases).forEach(function(k){ if(ROSTER.aliases[k].toLowerCase()===from.toLowerCase()) ROSTER.aliases[k]=to; });
+  ROSTER.players=ROSTER.players.filter(function(p){return p.toLowerCase()!==from.toLowerCase();});
+  if(!ROSTER.players.some(function(p){return p.toLowerCase()===to.toLowerCase();})) ROSTER.players.push(to);
+  ROSTER.players.sort(); saveRoster(); openRoster(); }
 
 /* ================= PURE LOGIC (brute-force verified) ================= */
 function computeStats(results){
@@ -429,7 +517,9 @@ function boot(){
   document.getElementById("startBtn").addEventListener("click", startTournament);
   document.getElementById("scorePill").addEventListener("click", toggleMini);
   startUiTicker();
-
+  loadRoster(function(){ renderRosterDatalist(); route(); });
+}
+function route(){
   var tid=getParam("t");
   if(ONLINE && tid){ subscribe(tid); setStatus("home","Joining tournament "+tid+"…"); return; }
   if(!ONLINE){
@@ -444,7 +534,7 @@ function boot(){
 
 /* ================= HOME / NAV ================= */
 function goHome(){ if(unsub){unsub();unsub=null;} S=null; setTournamentUrl(""); if(history.replaceState) history.replaceState(null,"",location.pathname); show("home"); setStatus("home", ONLINE?"":"Offline mode — add Firebase config for live sharing."); }
-function newTournament(){ buildNameInputs(); setErr(""); show("setup"); }
+function newTournament(){ buildNameInputs(); setErr(""); loadRoster(function(){ renderRosterDatalist(); }); show("setup"); }
 function setStatus(where,msg){ var el=document.getElementById(where+"Status"); if(el) el.textContent=msg||""; }
 
 /* ================= SETUP ================= */
@@ -453,7 +543,9 @@ function buildNameInputs(vals){
   for(var i=0;i<6;i++){var row=document.createElement("div");row.className="row";
     row.innerHTML='<span class="let">'+(i+1)+'</span>';
     var inp=document.createElement("input");inp.type="text";inp.placeholder=i<4?"Player "+(i+1):"Player "+(i+1)+" (optional)";inp.maxLength=18;inp.id="name"+i;inp.value=(vals&&vals[i])||"";
+    inp.setAttribute("list","rosterList");inp.setAttribute("autocomplete","off");
     row.appendChild(inp);box.appendChild(row);}
+  renderRosterDatalist();
 }
 function setErr(m){ document.getElementById("setupErr").textContent=m||""; }
 function startTournament(){
@@ -464,6 +556,9 @@ function startTournament(){
     if(seen[v.toLowerCase()])return setErr('Names must be unique — "'+v+'" is repeated.');
     seen[v.toLowerCase()]=1;names.push(v);}
   if(names.length<4) return setErr("Enter at least 4 players (4, 5 or 6).");
+  names=names.map(canon);   // normalise spellings to canonical roster names
+  var seen2={}; for(var k=0;k<names.length;k++){ if(seen2[names[k].toLowerCase()]) return setErr('"'+names[k]+'" is the same player twice.'); seen2[names[k].toLowerCase()]=1; }
+  rememberPlayers(names);   // add any brand-new names to the dropdown roster
   setErr("");
   var N=names.length, glen=SCHEDULES[N].length;
   var slotNames=assignSlots(names,N);
@@ -699,6 +794,9 @@ function shareLink(){
 function openLeaderboard(){
   show("leaderboard");
   document.getElementById("lbStatus").textContent="Loading…";
+  loadRoster(fetchLeaderboard);
+}
+function fetchLeaderboard(){
   if(ONLINE&&db){
     db.collection("tournaments").where("phase","==","done").get().then(function(qs){
       var docs=[];qs.forEach(function(d){docs.push(d.data());});aggregateLeaderboard(docs);
@@ -712,8 +810,8 @@ function openLeaderboard(){
   }
 }
 function aggregateLeaderboard(tournaments){
-  var agg={}; // name(lower) -> {name, wins, titles, played, tournaments}
-  function ensure(n){var k=n.toLowerCase();if(!agg[k])agg[k]={name:n,wins:0,titles:0,tournaments:0};return agg[k];}
+  var agg={}; // canonical-name(lower) -> {name, wins, titles, played, tournaments}
+  function ensure(n){var c=canon(n),k=c.toLowerCase();if(!agg[k])agg[k]={name:c,wins:0,titles:0,tournaments:0};return agg[k];}
   tournaments.forEach(function(t){
     if(!t.names||t.phase!=="done") return;
     var seen={};
@@ -737,6 +835,7 @@ function aggregateLeaderboard(tournaments){
     t.names.forEach(function(n){ if(!seen[n.toLowerCase()]){seen[n.toLowerCase()]=1; ensure(n).tournaments++;} });
   });
   var rows=Object.keys(agg).map(function(k){return agg[k];});
+  backfillRoster(rows.map(function(r){return r.name;}));   // learn existing players into the dropdown
   rows.sort(function(a,b){ if(b.wins!==a.wins)return b.wins-a.wins; if(b.titles!==a.titles)return b.titles-a.titles; return a.name.localeCompare(b.name); });
   var html="<tr><th class='rank'>#</th><th>Player</th><th style='text-align:right'>Wins</th><th style='text-align:right'>🏆</th><th style='text-align:right'>Events</th></tr>";
   if(rows.length===0) html+="<tr><td colspan='5' style='color:var(--dim);text-align:center;padding:16px;'>No completed tournaments yet.</td></tr>";
@@ -768,7 +867,7 @@ function uiTick(){
 }
 
 /* ================= SHOW ================= */
-function show(id){ ["home","setup","play","tiebreak","seeding","results","leaderboard"].forEach(function(x){document.getElementById(x).classList.toggle("hidden",x!==id);}); window.scrollTo(0,0); }
+function show(id){ ["home","setup","play","tiebreak","seeding","results","leaderboard","roster"].forEach(function(x){document.getElementById(x).classList.toggle("hidden",x!==id);}); window.scrollTo(0,0); }
 
 /* boot */
 boot();

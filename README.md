@@ -120,6 +120,7 @@ The app now supports an optional **online mode** with a shared cloud database, r
 - **Online database (Firebase Firestore):** results stored in the cloud, not just one device.
 - **Real-time multi-phone sync:** any player opens a shared link and can enter results; everyone sees updates live.
 - **All-time leaderboard:** ranks players by total match wins across every completed tournament (players matched by name).
+- **Player roster & de-duplication:** the setup name fields autocomplete from a saved roster of known players (new names are added automatically). A **Manage players** screen flags likely misspellings (e.g. "Milin" vs "Milind") and lets you merge one into the other in two taps. Merges apply everywhere — history and leaderboard — without altering your saved results.
 
 Online mode is **off until you add Firebase config** — until then the app runs offline on a single device exactly as before. To enable it, follow **`FIREBASE-SETUP.md`** (about 10 minutes of Firebase console setup, then paste 6 values into `index.html`). Hosting stays on GitHub Pages.
 
