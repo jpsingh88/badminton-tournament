@@ -566,7 +566,8 @@ function boot(){
   document.getElementById("startBtn").addEventListener("click", startTournament);
   document.getElementById("scorePill").addEventListener("click", toggleMini);
   startUiTicker();
-  loadRoster(function(){ seedRosterFromHistory(function(){ route(); }); });
+  route();                    // show home / join a shared tournament immediately — don't wait on the network
+  loadRoster();               // load the player roster (one small doc) quietly in the background for the dropdown
 }
 function route(){
   var tid=getParam("t");
