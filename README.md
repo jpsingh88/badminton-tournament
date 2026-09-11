@@ -14,6 +14,8 @@ A single-file web app to run a **6-player badminton doubles tournament** on one 
 - Breaks ties fairly with **point differential**, falling back to a **1-vs-1 singles playoff** only when two players are still dead-even. No coin tosses.
 - Times each match and runs a short **changeover countdown** between games.
 - Shows a running **match history** with scores, durations, and who rested.
+- **Substitutions:** tap **Substitute players** before recording a match to change who's actually on court (e.g. a resting player fills in). The result records exactly who played, so points/history stay accurate.
+- **Auto-dated:** each tournament is stamped with its start date automatically.
 - Auto-saves progress, so a locked phone or refresh won't lose the tournament.
 
 ---

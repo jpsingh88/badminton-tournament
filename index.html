@@ -173,6 +173,8 @@
     </div>
 
     <div class="resting" id="resting"></div>
+    <button class="btn-ghost btn-small hidden" id="editLineupBtn" onclick="toggleEditLineup()" style="margin-top:8px;">✏️ Substitute players</button>
+    <div id="lineupEdit" class="card hidden" style="margin-top:8px;"></div>
     <div class="err" id="playErr"></div>
     <button class="btn-go" onclick="recordResult()">Record result</button>
     <div class="nextup hidden" id="nextup"></div>
@@ -337,7 +339,7 @@ var CHANGEOVER_S=18, STORE="badminton_v3", ARCHIVE="badminton_archive_v3";
 
 var S=null;               // active tournament state (shared object; mirrored to cloud when online)
 var ONLINE=false, db=null, unsub=null, applyingRemote=false;
-var uiInt=null, coRenderKey="", pushTimer=null;
+var uiInt=null, coRenderKey="", pushTimer=null, editLineup=false;
 
 function shuffle(a){a=a.slice();for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
 function pad(n){return n<10?"0"+n:""+n;}
@@ -347,6 +349,7 @@ function jsstr(s){return String(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'");}
 
 /* ================= PLAYER ROSTER (autocomplete + de-dup / merge) ================= */
 var ROSTER={players:[],aliases:{},hidden:[]};   // players: canonical names; aliases: misspelling->canonical; hidden: names to drop everywhere
+var rosterSaveError=false;
 function normRoster(d){ d=d||{}; return {players:Array.isArray(d.players)?d.players:[], aliases:(d.aliases&&typeof d.aliases==="object")?d.aliases:{}, hidden:Array.isArray(d.hidden)?d.hidden:[]}; }
 function isHidden(name){ return ROSTER.hidden.indexOf(canon(name).toLowerCase())>=0; }
 function loadRoster(cb){
@@ -354,8 +357,14 @@ function loadRoster(cb){
   else { try{ROSTER=normRoster(JSON.parse(localStorage.getItem("badminton_roster")||"{}"));}catch(e){} if(cb)cb(); }
 }
 function saveRoster(){
-  if(ONLINE&&db){ db.collection("meta").doc("roster").set(ROSTER).catch(function(){}); }
+  if(ONLINE&&db){ db.collection("meta").doc("roster").set(ROSTER).then(function(){ if(rosterSaveError){rosterSaveError=false;setStatus("home","");} }).catch(function(e){ rosterSaveError=true; setStatus("home","⚠ Player list can't be saved to the cloud — your Firestore rules are missing the 'meta' line (see FIREBASE-SETUP)."); }); }
   else { try{localStorage.setItem("badminton_roster",JSON.stringify(ROSTER));}catch(e){} }
+}
+// Seed the dropdown from all past tournaments on startup, so it's ready on the first "New Tournament".
+function seedRosterFromHistory(cb){
+  function harvest(docs){ var names=[]; docs.forEach(function(t){ if(t._isRoster)return; (t.names||[]).forEach(function(n){names.push(n);}); if(t.playerWins)Object.keys(t.playerWins).forEach(function(n){names.push(n);}); if(t.championsNames)t.championsNames.forEach(function(n){names.push(n);}); }); backfillRoster(names); if(cb)cb(); }
+  if(ONLINE&&db){ db.collection("tournaments").get().then(function(qs){var d=[];qs.forEach(function(x){d.push(x.data());});harvest(d);}).catch(function(){ if(cb)cb(); }); }
+  else { var arr=[];try{arr=JSON.parse(localStorage.getItem(ARCHIVE)||"[]");}catch(e){} harvest(arr); }
 }
 // Resolve a typed name to its canonical spelling (alias > known player casing > as-typed).
 function canon(name){ var t=(name||"").trim(); if(!t)return ""; var low=t.toLowerCase();
@@ -444,9 +453,10 @@ function restoreHidden(low){ ROSTER.hidden=ROSTER.hidden.filter(function(x){retu
 /* ================= PURE LOGIC (brute-force verified) ================= */
 function computeStats(results){
   var st=[];for(var i=0;i<S.size;i++)st.push({id:i,pts:0,pf:0,pa:0,diff:0,wins:0,played:0,rested:0});
-  for(var i=0;i<SCHEDULE.length;i++){var r=results[i];if(!r)continue;var t1=SCHEDULE[i].t1,t2=SCHEDULE[i].t2;
+  for(var i=0;i<SCHEDULE.length;i++){var r=results[i];if(!r)continue;
+    var t1=(r.t1&&r.t2)?r.t1:SCHEDULE[i].t1, t2=(r.t1&&r.t2)?r.t2:SCHEDULE[i].t2, rst=(r.t1&&r.t2)?(r.rest||[]):(SCHEDULE[i].rest||[]);
     t1.concat(t2).forEach(function(p){st[p].played++;});
-    (SCHEDULE[i].rest||[]).forEach(function(p){st[p].rested++;});
+    rst.forEach(function(p){st[p].rested++;});
     t1.forEach(function(p){st[p].pf+=r.a;st[p].pa+=r.b;});t2.forEach(function(p){st[p].pf+=r.b;st[p].pa+=r.a;});
     var w=r.win==='A'?t1:t2;w.forEach(function(p){st[p].pts+=2;st[p].wins++;});}
   st.forEach(function(s){s.diff=s.pf-s.pa;});return st;
@@ -456,7 +466,8 @@ function computeStats(results){
 function h2hNet(ids,results){
   var net={},g={}; ids.forEach(function(p){net[p]=0;g[p]=1;});
   for(var i=0;i<SCHEDULE.length;i++){var r=results[i];if(!r)continue;
-    var W=r.win==='A'?SCHEDULE[i].t1:SCHEDULE[i].t2, L=r.win==='A'?SCHEDULE[i].t2:SCHEDULE[i].t1;
+    var mt1=(r.t1&&r.t2)?r.t1:SCHEDULE[i].t1, mt2=(r.t1&&r.t2)?r.t2:SCHEDULE[i].t2;
+    var W=r.win==='A'?mt1:mt2, L=r.win==='A'?mt2:mt1;
     W.forEach(function(w){ if(g[w]) L.forEach(function(l){ if(g[l]) net[w]++; }); });
     L.forEach(function(l){ if(g[l]) W.forEach(function(w){ if(g[w]) net[l]--; }); });
   }
@@ -555,7 +566,7 @@ function boot(){
   document.getElementById("startBtn").addEventListener("click", startTournament);
   document.getElementById("scorePill").addEventListener("click", toggleMini);
   startUiTicker();
-  loadRoster(function(){ renderRosterDatalist(); route(); });
+  loadRoster(function(){ seedRosterFromHistory(function(){ route(); }); });
 }
 function route(){
   var tid=getParam("t");
@@ -572,7 +583,7 @@ function route(){
 
 /* ================= HOME / NAV ================= */
 function goHome(){ if(unsub){unsub();unsub=null;} S=null; setTournamentUrl(""); if(history.replaceState) history.replaceState(null,"",location.pathname); show("home"); setStatus("home", ONLINE?"":"Offline mode — add Firebase config for live sharing."); }
-function newTournament(){ buildNameInputs(); setErr(""); loadRoster(function(){ renderRosterDatalist(); }); show("setup"); }
+function newTournament(){ buildNameInputs(); setErr(""); show("setup"); }
 function setStatus(where,msg){ var el=document.getElementById(where+"Status"); if(el) el.textContent=msg||""; }
 
 /* ================= SETUP ================= */
@@ -603,19 +614,39 @@ function startTournament(){
   var N=names.length, glen=SCHEDULES[N].length;
   var slotNames=assignSlots(names,N);
   var now=Date.now(), dur=(N===4?1.5:2)*60*60*1000;
+  var dt=new Date(), dateStr=dt.getFullYear()+"-"+pad(dt.getMonth()+1)+"-"+pad(dt.getDate());
   S={id:randId(), size:N, games:glen, names:slotNames, results:new Array(glen).fill(null), phase:"league", matchIndex:0,
      matchStart:now, tie:null, finalTeams:null, finalResult:null, champions:null,
-     startedAt:now, endAt:now+dur, updatedAt:now};
+     date:dateStr, startedAt:now, endAt:now+dur, updatedAt:now};
   syncSchedule();
   if(ONLINE){ setTournamentUrl(S.id); subscribe(S.id); }
   persist(); renderCurrent(true);
 }
 
 /* ================= CURRENT MATCH ================= */
+// The teams the fixture/seeds intend for the current match.
+function defaultTeams(){
+  if(S.phase==="league"){var m=SCHEDULE[S.matchIndex];return {t1:m.t1.slice(),t2:m.t2.slice(),rest:(m.rest||[]).slice()};}
+  if(S.phase==="final"){var inF={};S.finalTeams.A.concat(S.finalTeams.B).forEach(function(x){inF[x]=1;});var rest=[];for(var i=0;i<S.size;i++)if(!inF[i])rest.push(i);
+    return {t1:S.finalTeams.A.slice(),t2:S.finalTeams.B.slice(),rest:rest};}
+  return null;
+}
+// The ACTUAL lineup for the current match — editable via substitutions, defaults to the fixture.
+function ensureLineup(){ var tag=S.phase+":"+S.matchIndex;
+  if(!S.lineup || S.lineup.tag!==tag){ var d=defaultTeams(); if(d){ S.lineup={tag:tag,t1:d.t1,t2:d.t2,rest:d.rest}; editLineup=false; } }
+  return S.lineup; }
+function setCourt(pos,id){ var lu=ensureLineup(); var court=lu.t1.concat(lu.t2), rest=lu.rest.slice();
+  var q=court.indexOf(id);
+  if(q>=0){ var tmp=court[pos];court[pos]=id;court[q]=tmp; }        // both on court -> swap them
+  else { var ri=rest.indexOf(id); if(ri<0)return; rest.splice(ri,1); rest.push(court[pos]); court[pos]=id; }  // sub in from rest
+  lu.t1=[court[0],court[1]]; lu.t2=[court[2],court[3]]; lu.rest=rest; persist(); renderPlay(false); }
+function toggleEditLineup(){ editLineup=!editLineup; renderPlay(false); }
+
 function currentMatch(){
-  if(S.phase==="league"){var m=SCHEDULE[S.matchIndex];
-    return {t1:m.t1,t2:m.t2,rest:m.rest,tagA:"Team 1",tagB:"Team 2",header:"Match <b>"+(S.matchIndex+1)+"</b> of "+SCHEDULE.length,tag:null};}
-  if(S.phase==="final"){return {t1:S.finalTeams.A,t2:S.finalTeams.B,rest:null,tagA:"Seed 1 + Seed 4",tagB:"Seed 2 + Seed 3",header:"Winners take the tournament",tag:{cls:"final",txt:"🏆 FINAL"}};}
+  if(S.phase==="league"){var lu=ensureLineup();
+    return {t1:lu.t1,t2:lu.t2,rest:lu.rest,tagA:"Team 1",tagB:"Team 2",header:"Match <b>"+(S.matchIndex+1)+"</b> of "+SCHEDULE.length,tag:null};}
+  if(S.phase==="final"){var lu=ensureLineup();
+    return {t1:lu.t1,t2:lu.t2,rest:lu.rest,tagA:"Seed 1 + Seed 4",tagB:"Seed 2 + Seed 3",header:"Winners take the tournament",tag:{cls:"final",txt:"🏆 FINAL"}};}
   return null;
 }
 function nm(ids){ return ids.map(function(x){return S.names[x];}).join("  &  "); }
@@ -657,8 +688,8 @@ function renderPlay(resetInputs){
     document.getElementById("namesB").textContent=nm(cm.t2);
     var rest=document.getElementById("resting");
     if(cm.rest&&cm.rest.length)rest.innerHTML=restLine(cm.rest);
-    else if(S.phase==="final")rest.innerHTML=finalRestLine();
     else rest.innerHTML="";
+    renderLineupEditor();
     var league=S.phase==="league";
     document.getElementById("undoBtn").style.display=(league&&S.matchIndex>0)?"block":"none";
     document.getElementById("skipBtn").style.display=league?"block":"none";
@@ -677,6 +708,20 @@ function renderPlay(resetInputs){
   renderMini(); renderHistory();
 }
 function bump(side,delta){var el=document.getElementById("score"+side);el.value=Math.max(0,(parseInt(el.value,10)||0)+delta);}
+function renderLineupEditor(){
+  var btn=document.getElementById("editLineupBtn"), box=document.getElementById("lineupEdit");
+  var canEdit=(S.phase==="league"||S.phase==="final") && S.size>4;   // need at least one resting player to substitute
+  btn.classList.toggle("hidden", !canEdit);
+  if(!canEdit || !editLineup){ box.classList.add("hidden"); btn.textContent="✏️ Substitute players"; return; }
+  btn.textContent="✕ Hide substitutions";
+  var lu=ensureLineup(), court=lu.t1.concat(lu.t2);
+  var opt=function(cur){var s="";for(var i=0;i<S.size;i++)s+="<option value='"+i+"'"+(i===cur?" selected":"")+">"+escapeHtml(S.names[i])+"</option>";return s;};
+  var labels=["Team 1 · player","Team 1 · player","Team 2 · player","Team 2 · player"];
+  var html="<div class='note' style='text-align:left;margin:0 0 8px;'>Pick who actually played each spot — the result records this exact lineup.</div>";
+  for(var p=0;p<4;p++) html+="<div class='seedrow'><span>"+labels[p]+"</span><span><select onchange=\"setCourt("+p+",parseInt(this.value,10))\" style='background:var(--card2);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:6px;font-size:14px;'>"+opt(court[p])+"</select></span></div>";
+  html+="<div class='resting' style='margin-top:8px;'>"+(lu.rest.length?"Resting: "+lu.rest.map(function(x){return escapeHtml(S.names[x]);}).join(", "):"Nobody resting")+"</div>";
+  box.innerHTML=html; box.classList.remove("hidden");
+}
 
 /* ================= ACTIONS ================= */
 function recordResult(){
@@ -688,20 +733,21 @@ function recordResult(){
   var win=a>b?'A':'B';
   var dur=Math.max(0,Math.round((Date.now()-S.matchStart)/1000));
 
+  var lu=ensureLineup();
   if(S.phase==="league"){
-    S.results[S.matchIndex]={win:win,a:a,b:b,dur:dur};
-    S.matchIndex++;
+    S.results[S.matchIndex]={win:win,a:a,b:b,dur:dur,t1:lu.t1.slice(),t2:lu.t2.slice(),rest:lu.rest.slice()};
+    S.matchIndex++; S.lineup=null; editLineup=false;
     if(S.matchIndex>=SCHEDULE.length){ persist(); afterLeague(); return; }
     S.matchStart=Date.now()+CHANGEOVER_S*1000; // changeover before next
     persist(); renderPlay(true);
   } else if(S.phase==="final"){
-    S.finalResult={win:win,a:a,b:b,dur:dur};
-    S.champions=win==='A'?S.finalTeams.A:S.finalTeams.B;
+    S.finalResult={win:win,a:a,b:b,dur:dur,t1:lu.t1.slice(),t2:lu.t2.slice(),rest:lu.rest.slice()};
+    S.champions=win==='A'?lu.t1.slice():lu.t2.slice();
     S.phase="done"; archiveFinished(); persist(); renderResults();
   }
 }
 function playErr(m){document.getElementById("playErr").textContent=m||"";}
-function undo(){ if(S.phase!=="league"||S.matchIndex===0)return; S.matchIndex--; S.results[S.matchIndex]=null; S.matchStart=Date.now(); persist(); renderPlay(true); }
+function undo(){ if(S.phase!=="league"||S.matchIndex===0)return; S.matchIndex--; S.results[S.matchIndex]=null; S.lineup=null; editLineup=false; S.matchStart=Date.now(); persist(); renderPlay(true); }
 function endLeagueEarly(){ if(confirm("Skip remaining league matches and go to seeding? Standings use matches played so far.")){ afterLeague(); } }
 function startNextNow(){ S.matchStart=Date.now(); persist(); renderPlay(true); }
 
@@ -796,12 +842,15 @@ function histRow(num,win,lose,sw,sl,rest,dur,kind){
 function historyHTML(){
   var rows="";
   for(var i=0;i<SCHEDULE.length;i++){var r=S.results[i];if(!r)continue;var m=SCHEDULE[i];
-    var win=r.win==='A'?m.t1:m.t2,lose=r.win==='A'?m.t2:m.t1;rows+=histRow(i+1,win,lose,Math.max(r.a,r.b),Math.min(r.a,r.b),m.rest,r.dur,"league");}
+    var mt1=(r.t1&&r.t2)?r.t1:m.t1, mt2=(r.t1&&r.t2)?r.t2:m.t2, mrest=(r.t1&&r.t2)?(r.rest||[]):(m.rest||[]);
+    var win=r.win==='A'?mt1:mt2,lose=r.win==='A'?mt2:mt1;rows+=histRow(i+1,win,lose,Math.max(r.a,r.b),Math.min(r.a,r.b),mrest,r.dur,"league");}
   if(S.tie&&S.tie.orders){var parts=[];
     S.tie.groups.forEach(function(g,gi){var ord=(S.tie.orders[gi]||[]);if(ord.length===g.ids.length)parts.push(ord.map(function(id){return escapeHtml(S.names[id]);}).join(" › "));});
     if(parts.length)rows+="<div class='hrow htie'><div class='hnum'>🎯</div><div class='hbody'><div class='hteams'>Tie-break knockout</div><div class='hmeta'>Finishing order: "+parts.join("  |  ")+"</div></div></div>";}
-  if(S.phase==="done"&&S.finalResult){var fw=S.finalResult.win==='A'?S.finalTeams.A:S.finalTeams.B;var fl=S.finalResult.win==='A'?S.finalTeams.B:S.finalTeams.A;
-    rows+=histRow(null,fw,fl,Math.max(S.finalResult.a,S.finalResult.b),Math.min(S.finalResult.a,S.finalResult.b),null,S.finalResult.dur,"final");}
+  if(S.phase==="done"&&S.finalResult){var fr=S.finalResult;
+    var ft1=(fr.t1&&fr.t2)?fr.t1:S.finalTeams.A, ft2=(fr.t1&&fr.t2)?fr.t2:S.finalTeams.B;
+    var fw=fr.win==='A'?ft1:ft2, fl=fr.win==='A'?ft2:ft1;
+    rows+=histRow(null,fw,fl,Math.max(fr.a,fr.b),Math.min(fr.a,fr.b),null,fr.dur,"final");}
   return rows||"<div class='hempty'>No matches completed yet.</div>";
 }
 function renderHistory(){
@@ -818,7 +867,7 @@ function renderResults(){
   var r=ranking(computeStats(S.results),(S.tie&&S.tie.tieKey)||{});
   document.getElementById("champName").textContent=S.champions?nm(S.champions):"—";
   document.getElementById("finalTable").innerHTML=boardRows(r,true);
-  document.getElementById("finalNote").textContent="Champions won the final. League table shows points, matches played, and rests.";
+  document.getElementById("finalNote").textContent=(S.date?"Played "+S.date+". ":"")+"Champions won the final. League table shows points, matches played, and rests.";
   renderHistory(); show("results");
 }
 
@@ -864,7 +913,9 @@ function aggregateLeaderboard(tournaments){
     }
     // league match wins — use THIS tournament's own fixture/size (default 6 for older records)
     var SC=SCHEDULES[t.size||6];
-    for(var i=0;i<SC.length;i++){var r=t.results&&t.results[i];if(!r)continue;var m=SC[i];var w=r.win==='A'?m.t1:m.t2;
+    for(var i=0;i<SC.length;i++){var r=t.results&&t.results[i];if(!r)continue;
+      var mt1=(r.t1&&r.t2)?r.t1:SC[i].t1, mt2=(r.t1&&r.t2)?r.t2:SC[i].t2;
+      var w=r.win==='A'?mt1:mt2;
       w.forEach(function(p){ensure(t.names[p]).wins++;});
     }
     // tiebreak singles wins
